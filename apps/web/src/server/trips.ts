@@ -1,0 +1,191 @@
+/**
+ * Trip services for the hero slice. Reads run through `withSession` so RLS decides what the
+ * caller sees; only creation (no client INSERT grant on trips) runs as the service.
+ */
+import { and, asc, eq, inArray } from "drizzle-orm";
+import {
+  asService,
+  ideas,
+  ideaSources,
+  members,
+  stops,
+  trips,
+  tripStages,
+  votes,
+  withSession,
+  type Claims,
+  type Db,
+} from "@wandr/db";
+import { ideaReveals } from "@wandr/db/reveals";
+import { tripSize, type TripSize, type VoteValue } from "@wandr/core";
+import { buildIdeaCards, type IdeaCard } from "./cards";
+
+export const STAGES = ["where", "when", "stay", "getting_around", "do"] as const;
+
+/**
+ * FR-1(b)/P1: a trip needs only a name. One hidden default Stop (§5). A single known city
+ * starts at Do (FR-S2), so earlier stages begin as `not_needed` only when a city is given.
+ */
+export async function createTrip(
+  db: Db,
+  args: { userId: string; ownerName: string; name: string; city?: string | null },
+): Promise<{ tripId: string; memberId: string; stopId: string }> {
+  return asService(db, async (tx) => {
+    const [trip] = await tx
+      .insert(trips)
+      .values({ name: args.name.trim().slice(0, 80) || "Our trip", createdBy: args.userId })
+      .returning({ id: trips.id });
+    const tripId = trip!.id;
+    const [stop] = await tx
+      .insert(stops)
+      .values({ tripId, name: args.city?.trim() ?? "", isDefault: true })
+      .returning({ id: stops.id });
+    await tx.insert(tripStages).values(
+      STAGES.map((stage) => ({
+        tripId,
+        stage,
+        status: args.city && stage === "where" ? ("set" as const) : ("collecting" as const),
+      })),
+    );
+    const [member] = await tx
+      .insert(members)
+      .values({
+        tripId,
+        userId: args.userId,
+        displayName: args.ownerName,
+        role: "owner",
+        status: "active",
+        joinedAt: new Date(),
+      })
+      .returning({ id: members.id });
+    return { tripId, memberId: member!.id, stopId: stop!.id };
+  });
+}
+
+export interface TripView {
+  trip: { id: string; name: string; size: TripSize };
+  me: { memberId: string; role: "owner" | "organizer" | "member"; displayName: string; noticesSeen: string[] };
+  members: { id: string; displayName: string; role: string; status: string; isGuestOfHonor: boolean }[];
+  stops: { id: string; name: string; isDefault: boolean; position: number }[];
+  ideas: IdeaCard[];
+}
+
+/** Everything the trip page needs, as the caller. Returns null if the caller can't see the trip. */
+export async function getTripView(db: Db, claims: Claims, tripId: string): Promise<TripView | null> {
+  return withSession(db, claims, async (tx) => {
+    const [trip] = await tx.select().from(trips).where(eq(trips.id, tripId));
+    if (!trip) return null;
+    const memberRows = await tx
+      .select({
+        id: members.id,
+        userId: members.userId,
+        displayName: members.displayName,
+        role: members.role,
+        status: members.status,
+        isGuestOfHonor: members.isGuestOfHonor,
+        noticesSeen: members.noticesSeen,
+        createdAt: members.createdAt,
+      })
+      .from(members)
+      .where(eq(members.tripId, tripId))
+      .orderBy(asc(members.createdAt));
+    const me = memberRows.find((m) =>
+      claims.sub ? m.userId === claims.sub : m.id === claims.link_member,
+    );
+    if (!me || me.status !== "active") return null;
+    const active = memberRows.filter((m) => m.status === "active");
+    const size = tripSize(active.length);
+
+    const stopRows = await tx
+      .select({ id: stops.id, name: stops.name, isDefault: stops.isDefault, position: stops.position })
+      .from(stops)
+      .where(eq(stops.tripId, tripId))
+      .orderBy(asc(stops.position));
+    const ideaRows = await tx
+      .select()
+      .from(ideas)
+      .where(and(eq(ideas.tripId, tripId)))
+      .orderBy(asc(ideas.createdAt));
+    const ids = ideaRows.map((i) => i.id);
+    const sourceRows = ids.length
+      ? await tx.select().from(ideaSources).where(inArray(ideaSources.ideaId, ids))
+      : [];
+    const myVoteRows = await tx
+      .select({ ideaId: votes.ideaId, value: votes.value })
+      .from(votes)
+      .where(and(eq(votes.tripId, tripId), eq(votes.memberId, me.id)));
+    const reveals = await ideaReveals(tx, tripId);
+
+    return {
+      trip: { id: trip.id, name: trip.name, size },
+      me: { memberId: me.id, role: me.role, displayName: me.displayName, noticesSeen: me.noticesSeen },
+      members: memberRows
+        .filter((m) => m.status === "active")
+        .map(({ id, displayName, role, status, isGuestOfHonor }) => ({
+          id,
+          displayName,
+          role,
+          status,
+          isGuestOfHonor,
+        })),
+      stops: stopRows,
+      ideas: buildIdeaCards({
+        size,
+        viewerMemberId: me.id,
+        ideas: ideaRows,
+        sources: sourceRows,
+        reveals,
+        myVotes: new Map(myVoteRows.map((v) => [v.ideaId, v.value as VoteValue])),
+        memberNames: new Map(memberRows.map((m) => [m.id, m.displayName])),
+      }),
+    };
+  });
+}
+
+/** Trips the signed-in user belongs to (home screen). */
+export async function listMyTrips(db: Db, userId: string) {
+  return withSession(db, { sub: userId }, async (tx) =>
+    tx
+      .select({ id: trips.id, name: trips.name, size: trips.size, lastActivityAt: trips.lastActivityAt })
+      .from(trips)
+      .innerJoin(members, and(eq(members.tripId, trips.id), eq(members.userId, userId)))
+      .where(eq(members.status, "active"))
+      .orderBy(asc(trips.createdAt)),
+  );
+}
+
+/** FR-40/43: cast or change a vote. The DB trigger fills size/open_to/change_count. */
+export async function castVote(
+  db: Db,
+  claims: Claims,
+  args: { tripId: string; ideaId: string; memberId: string; value: VoteValue | null },
+) {
+  return withSession(db, claims, async (tx) => {
+    if (args.value === null) {
+      await tx.delete(votes).where(and(eq(votes.ideaId, args.ideaId), eq(votes.memberId, args.memberId)));
+      return;
+    }
+    await tx
+      .insert(votes)
+      .values({
+        ideaId: args.ideaId,
+        memberId: args.memberId,
+        tripId: args.tripId,
+        value: args.value,
+        castInSize: "solo", // overwritten by trigger
+      })
+      .onConflictDoUpdate({
+        target: [votes.ideaId, votes.memberId],
+        set: { value: args.value, updatedAt: new Date() },
+      });
+  });
+}
+
+/** FR-T3/T6: record a one-time notice as seen. */
+export async function markNoticeSeen(db: Db, claims: Claims, memberId: string, notice: string) {
+  return withSession(db, claims, async (tx) => {
+    const [m] = await tx.select({ n: members.noticesSeen }).from(members).where(eq(members.id, memberId));
+    if (!m || m.n.includes(notice)) return;
+    await tx.update(members).set({ noticesSeen: [...m.n, notice] }).where(eq(members.id, memberId));
+  });
+}
