@@ -4,19 +4,26 @@
  */
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { migrationStatements, splitStatements } from "./migrate-files";
+import { applyMigrations, type MigrationDriver } from "./migrate-files";
 import * as schema from "./schema";
+
+export function pgliteDriver(client: PGlite): MigrationDriver {
+  return {
+    exec: async (sql) => void (await client.exec(sql)),
+    appliedFiles: async () =>
+      (await client.query<{ file: string }>(`select file from _wandr_migrations`)).rows.map((r) => r.file),
+    transaction: (fn) =>
+      client.transaction(async (tx) => {
+        await fn({
+          exec: async (sql) => void (await tx.exec(sql)),
+          record: async (file) => void (await tx.query(`insert into _wandr_migrations (file) values ($1)`, [file])),
+        });
+      }),
+  };
+}
 
 export async function createPglite(dataDir?: string) {
   const client = new PGlite(dataDir);
-  await client.exec(`create table if not exists _wandr_migrations (file text primary key)`);
-  const done = new Set(
-    (await client.query<{ file: string }>(`select file from _wandr_migrations`)).rows.map((r) => r.file),
-  );
-  for (const { file, sql } of migrationStatements()) {
-    if (done.has(file)) continue;
-    for (const stmt of splitStatements(sql)) await client.exec(stmt);
-    await client.query(`insert into _wandr_migrations (file) values ($1)`, [file]);
-  }
+  await applyMigrations(pgliteDriver(client));
   return { client, db: drizzle(client, { schema }) };
 }

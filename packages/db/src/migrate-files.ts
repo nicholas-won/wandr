@@ -19,3 +19,31 @@ export function splitStatements(sql: string): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 }
+
+/** Minimal driver so the same bookkeeping runs on PGlite (tests/dev) and postgres-js (prod). */
+export interface MigrationDriver {
+  /** Run SQL that may contain several statements (simple query protocol). */
+  exec(sql: string): Promise<void>;
+  appliedFiles(): Promise<string[]>;
+  /** Run `fn` in one transaction; `exec`/`record` inside it must use that transaction. */
+  transaction(fn: (tx: { exec(sql: string): Promise<void>; record(file: string): Promise<void> }) => Promise<void>): Promise<void>;
+}
+
+/**
+ * Apply every not-yet-applied file in `dir`, in order, each in its own transaction, recording it
+ * in `_wandr_migrations`. Returns the files applied.
+ */
+export async function applyMigrations(driver: MigrationDriver, dir = MIGRATIONS_DIR): Promise<string[]> {
+  await driver.exec(`create table if not exists _wandr_migrations (file text primary key, applied_at timestamptz not null default now())`);
+  const done = new Set(await driver.appliedFiles());
+  const applied: string[] = [];
+  for (const { file, sql } of migrationStatements(dir)) {
+    if (done.has(file)) continue;
+    await driver.transaction(async (tx) => {
+      for (const stmt of splitStatements(sql)) await tx.exec(stmt);
+      await tx.record(file);
+    });
+    applied.push(file);
+  }
+  return applied;
+}

@@ -16,6 +16,7 @@ import {
   boolean,
   date,
   doublePrecision,
+  type AnyPgColumn,
   index,
   integer,
   jsonb,
@@ -65,6 +66,8 @@ export const ideaCategory = pgEnum("idea_category", [
   "other",
 ]);
 export const extractionState = pgEnum("extraction_state", [
+  /** Over the free daily import allowance: "Saved, we'll sort it tomorrow" (FR-L20, LB-3). */
+  "queued",
   "processing",
   "resolved",
   "needs_review",
@@ -72,6 +75,11 @@ export const extractionState = pgEnum("extraction_state", [
   "failed",
 ]);
 export const voteValue = pgEnum("vote_value", ["must", "down", "pass"]);
+export const userPlan = pgEnum("user_plan", ["free", "premium"]); // §11, D61
+export const boardRole = pgEnum("board_role", ["owner", "member"]);
+export const boardMemberStatus = pgEnum("board_member_status", ["active", "removed"]);
+/** FR-L22: only `extraction` (a new AI extraction the person started) can count. */
+export const aiImportKind = pgEnum("ai_import_kind", ["extraction", "cache_hit", "failed", "text"]);
 export const tripSize = pgEnum("trip_size", ["solo", "duo", "group"]);
 export const pollKind = pgEnum("poll_kind", ["ideas", "custom"]);
 export const splitMethod = pgEnum("split_method", ["even", "itemized", "just_me"]);
@@ -105,6 +113,7 @@ export const users = pgTable("users", {
   email: text("email").unique(), // private
   displayName: text("display_name").notNull(),
   smsOptedOut: boolean("sms_opted_out").notNull().default(false), // FR-85
+  plan: userPlan("plan").notNull().default("free"), // FR-L20/L21; set by the service only
   lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
   createdAt: createdAt(),
 });
@@ -259,6 +268,15 @@ export const ideas = pgTable(
     /** Listicle candidates awaiting the sharer's choice (FR-24). */
     candidates: jsonb("candidates"),
     createdByMemberId: uuid("created_by_member_id").references(() => members.id),
+    /** Saved idea this was copied from (FR-L11/L12). Copy semantics: never synced back (LB-4). */
+    sourceSavedIdeaId: uuid("source_saved_idea_id").references((): AnyPgColumn => savedIdeas.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * While extraction = 'queued': the sharer whose import allowance it's waiting on (D62).
+     * Any member can "Sort it now" with their own import (logged in ai_imports).
+     */
+    queuedForMemberId: uuid("queued_for_member_id").references((): AnyPgColumn => members.id),
     hiddenFrom: hiddenFrom(),
     createdAt: createdAt(),
   },
@@ -496,6 +514,8 @@ export const planItems = pgTable(
     startMinute: integer("start_minute"), // minutes after local midnight
     durationMinutes: integer("duration_minutes").notNull().default(90),
     travelMode: text("travel_mode"),
+    /** Side plan this item belongs to (e.g. "Ana & Ben: surf lesson"); null = main plan (§6.11). */
+    track: text("track"),
     travelMinutes: integer("travel_minutes"),
     locked: boolean("locked").notNull().default(false),
     attendeeMemberIds: uuid("attendee_member_ids").array(),
@@ -594,3 +614,197 @@ export const extractionCache = pgTable("extraction_cache", {
   result: jsonb("result").notNull(),
   createdAt: createdAt(),
 });
+
+// ---------------------------------------------------------------------------
+// Idea library (§5 "Saved idea"/"Board", §6.12). Private to its owner (FR-L25); shared boards
+// expose only their own items (FR-L14). Auto boards (country/city/category) are computed.
+// RLS: migrations/0003_library_rls.sql.
+// ---------------------------------------------------------------------------
+
+export const boards = pgTable(
+  "boards",
+  {
+    id: id(),
+    ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    name: text("name").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("boards_owner_idx").on(t.ownerUserId)],
+);
+
+/** A board-scoped person, like `members` for trips: user_id is null until they verify. */
+export const boardMembers = pgTable(
+  "board_members",
+  {
+    id: id(),
+    boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id),
+    displayName: text("display_name").notNull(),
+    role: boardRole("role").notNull().default("member"),
+    status: boardMemberStatus("status").notNull().default("active"),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("board_members_board_idx").on(t.boardId),
+    index("board_members_user_idx").on(t.userId),
+    uniqueIndex("board_members_board_user_uq").on(t.boardId, t.userId),
+  ],
+);
+
+/** Phone/email for invited board members. Service only (FR-L26). */
+export const boardMemberContacts = pgTable("board_member_contacts", {
+  boardMemberId: uuid("board_member_id")
+    .primaryKey()
+    .references(() => boardMembers.id, { onDelete: "cascade" }),
+  phone: text("phone"),
+  email: text("email"),
+});
+
+/** Personal links for shared boards (FR-L14; same rules as FR-5). Only the hash is stored. */
+export const boardLinks = pgTable(
+  "board_links",
+  {
+    id: id(),
+    boardMemberId: uuid("board_member_id")
+      .notNull()
+      .references(() => boardMembers.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    boundDeviceHash: text("bound_device_hash"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("board_links_member_idx").on(t.boardMemberId)],
+);
+
+export const savedIdeas = pgTable(
+  "saved_ideas",
+  {
+    id: id(),
+    /** Library owner. Null only for board-only saves added through a board link (FR-L14). */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    /** Board member who added a board-only save (no personal library behind it). */
+    createdByBoardMemberId: uuid("created_by_board_member_id").references(() => boardMembers.id, {
+      onDelete: "set null",
+    }),
+    extraction: extractionState("extraction").notNull().default("processing"),
+    title: text("title").notNull(),
+    category: ideaCategory("category").notNull().default("other"),
+    summary: text("summary"),
+    placeId: text("place_id"), // FR-31: the only Places field stored long-term
+    placeCache: jsonb("place_cache"),
+    placeCachedAt: timestamp("place_cached_at", { withTimezone: true }),
+    lat: doublePrecision("lat"),
+    lng: doublePrecision("lng"),
+    priceLevel: smallint("price_level"),
+    confidence: doublePrecision("confidence"),
+    permanentlyClosed: boolean("permanently_closed").notNull().default(false), // FR-L18, LB-9
+    candidates: jsonb("candidates"), // FR-L4 listicles
+    /** Auto-sort (FR-L3). Region-level saves leave the city empty (LB-8). */
+    country: text("country"), // ISO 3166-1 alpha-2
+    regionOrCity: text("region_or_city"),
+    /** User overrides of the auto-sort (§5). */
+    countryOverride: text("country_override"),
+    regionOrCityOverride: text("region_or_city_override"),
+    categoryOverride: ideaCategory("category_override"),
+    /** While extraction = 'queued': whose import allowance it's waiting on (FR-L20, D62). */
+    queuedForUserId: uuid("queued_for_user_id").references(() => users.id),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("saved_ideas_user_idx").on(t.userId, t.createdAt),
+    // FR-L5: one save per place per library; duplicates merge their sources.
+    uniqueIndex("saved_ideas_user_place_uq").on(t.userId, t.placeId).where(sql`${t.placeId} is not null`),
+  ],
+);
+
+/**
+ * The owner's personal layer on a save: note and someday priority (FR-L9; shown as
+ * Must-do / Maybe / Skip). A separate table so shared-board members never see it.
+ */
+export const savedIdeaNotes = pgTable("saved_idea_notes", {
+  savedIdeaId: uuid("saved_idea_id")
+    .primaryKey()
+    .references(() => savedIdeas.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  note: text("note"),
+  somedayPriority: voteValue("someday_priority"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Every source of a save; duplicates keep all of them (FR-L5, FR-26). */
+export const savedIdeaSources = pgTable(
+  "saved_idea_sources",
+  {
+    id: id(),
+    savedIdeaId: uuid("saved_idea_id").notNull().references(() => savedIdeas.id, { onDelete: "cascade" }),
+    kind: sourceKind("kind").notNull(),
+    url: text("url"),
+    normalizedUrl: text("normalized_url"),
+    caption: text("caption"), // untrusted (C-21)
+    thumbnailUrl: text("thumbnail_url"),
+    creatorHandle: text("creator_handle"), // §11
+    storagePath: text("storage_path"),
+    addedByUserId: uuid("added_by_user_id").references(() => users.id),
+    addedByBoardMemberId: uuid("added_by_board_member_id").references(() => boardMembers.id, {
+      onDelete: "set null",
+    }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("saved_idea_sources_idea_idx").on(t.savedIdeaId)],
+);
+
+export const boardItems = pgTable(
+  "board_items",
+  {
+    boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
+    savedIdeaId: uuid("saved_idea_id").notNull().references(() => savedIdeas.id, { onDelete: "cascade" }),
+    /** Board member (not user) so board-link sessions can add; kept after they leave (LB-6). */
+    addedByBoardMemberId: uuid("added_by_board_member_id").references(() => boardMembers.id, {
+      onDelete: "set null",
+    }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.boardId, t.savedIdeaId] }), index("board_items_idea_idx").on(t.savedIdeaId)],
+);
+
+/** "Sent to trips" (FR-L12): the trip holds a copy; this only records provenance (LB-4). */
+export const savedIdeaTripSends = pgTable(
+  "saved_idea_trip_sends",
+  {
+    id: id(),
+    savedIdeaId: uuid("saved_idea_id").notNull().references(() => savedIdeas.id, { onDelete: "cascade" }),
+    tripId: uuid("trip_id").notNull().references(() => trips.id, { onDelete: "cascade" }),
+    ideaId: uuid("idea_id").notNull().references(() => ideas.id, { onDelete: "cascade" }),
+    sentByUserId: uuid("sent_by_user_id").notNull().references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("saved_idea_sends_idea_idx").on(t.savedIdeaId),
+    uniqueIndex("saved_idea_sends_uq").on(t.savedIdeaId, t.ideaId),
+  ],
+);
+
+/**
+ * AI import log (FR-L20–L24, D62). POC: logged only, no cap enforced. The cap applies to every
+ * person in every context (library, solo and group trips). `counted` is computed by a trigger:
+ * true for every new AI extraction, false for cache hits, failures and plain text (FR-L22).
+ */
+export const aiImports = pgTable(
+  "ai_imports",
+  {
+    id: id(),
+    /** The person who spent the import; may differ from the sharer ("Sort it now"). */
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    tripId: uuid("trip_id").references(() => trips.id, { onDelete: "set null" }),
+    /** What the import was spent on: a trip idea or a saved idea. */
+    ideaId: uuid("idea_id").references(() => ideas.id, { onDelete: "set null" }),
+    savedIdeaId: uuid("saved_idea_id").references(() => savedIdeas.id, { onDelete: "set null" }),
+    kind: aiImportKind("kind").notNull(),
+    counted: boolean("counted").notNull().default(false),
+    normalizedUrl: text("normalized_url"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("ai_imports_user_idx").on(t.userId, t.createdAt)],
+);
