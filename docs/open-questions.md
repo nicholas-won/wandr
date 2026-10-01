@@ -37,3 +37,15 @@ move the answer into REQUIREMENTS.md §13 and update the code.
 | Q22 | Late joiners on itemized expenses (FR-12) | Even splits only |
 | Q23 | Not built: multiple payers (E-17), "covered by" (E-15), personal tracking-only (E-14) | Out of scope until specced |
 | Q24 | Duplicate receipt window | ±24 h |
+
+## Plan optimizer (packages/core/src/optimizer)
+
+| # | Question | Provisional default |
+|---|---|---|
+| Q25 | Suggestion for items with no location/time hint | Added `place_manually` (FR-O14) |
+| Q26 | Undated mode: assign times? | Times by meal/pace windows; hours ignored |
+| Q27 | Thresholds: late arrival cutoff, buffers, day bounds | 4pm → dinner only; 60 min buffers; 7am–3am |
+| Q28 | What makes a plan "out of date" (FR-O17) | Planned items, details, attendance, members, Stop changes |
+| Q29 | "Packed day" hint threshold (FR-O6 example is exactly the balanced cap) | Fires above the pace cap |
+| Q30 | Side plans proactive? | Only when main plan has no room |
+| Q31 | Check-in/out modelling; weather (FR-O11 stretch) | Not modelled |
