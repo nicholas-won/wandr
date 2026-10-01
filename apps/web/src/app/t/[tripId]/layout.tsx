@@ -26,6 +26,7 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
         <TripNav
           items={[
             { href: base, label: "Ideas" },
+            { href: `${base}/plan`, label: "Plan" },
             { href: `${base}/people`, label: view.trip.size === "solo" ? "Invite" : "People" },
           ]}
         />
