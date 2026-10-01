@@ -555,7 +555,7 @@ Once the group has decided **where** and **what**, the app helps with **when and
 - **FR-L19** **Alert throttling:** at most **1 library alert per person per week [OPEN]**, batched into a single digest.
 
 **Free and Premium (D61, D62)**
-- **FR-L20** **Free tier:** up to **3 AI imports per person per day** (a starting number, to be tuned with POC data). Imports beyond that are queued as "Saved — we'll sort it tomorrow" instead of failing, so nothing is lost.
+- **FR-L20** **Free tier:** up to **3 AI imports per person per day** (a starting number, to be tuned with POC data). **The cap only limits AI; adding by hand is always free and unlimited.** Over the cap, the person sees: "You've used today's 3 AI imports. **Add the place yourself** (search by name, link attached) or **we'll sort it tomorrow**." Either way the idea is saved immediately with its source link, so nothing is lost. Doing it by hand is meant to be a little more work than AI, never a blocker.
 - **FR-L21** **Premium:** a higher import limit (fair-use cap against abuse). Other Premium perks and the price are **[OPEN]**.
 - **FR-L21a** **7-day free trial** that **converts to paid automatically** unless cancelled:
   - **One trial per person**, tied to the verified phone or email and the payment method, so it can't be repeated by making new accounts.
@@ -564,11 +564,11 @@ Once the group has decided **where** and **what**, the app helps with **when and
   - **Easy cancel:** cancel online in the same place they signed up, in 2 taps or fewer, with no call or chat required. Cancelling during the trial keeps Premium until the trial ends and never charges.
   - After converting: a receipt email, and a renewal reminder before each yearly renewal.
   - **Legal review before launch** of US state auto-renewal laws (e.g. California's) and app-store subscription rules for the native app.
-- **FR-L22** **What counts as an import:** a new AI extraction the person starts. Cache hits (an already-resolved URL, FR-34), failed extractions, typed plain-text ideas and sending existing saves to a trip don't count.
+- **FR-L22** **What counts as an import:** a new AI extraction the person starts. These don't count: cache hits (an already-resolved URL, FR-34), failed extractions, **manual adds** (typed ideas, or picking a place from the place search with no AI), and sending existing saves to a trip.
 - **FR-L23** **The cap applies to everyone, everywhere** (D62): every person, including trip guests and no-app members, gets 3 free AI imports a day, counted across their library, solo trips and group trips.
-  - **Over the cap inside a trip,** the idea still shows up for the group straight away, as an unsorted card with its source link, so nobody loses it. It's sorted with the person's next day's allowance, or right away by anyone with imports left who taps "Sort it now." Typing the place name (plain text) never counts.
+  - **Over the cap inside a trip,** the idea shows up for the group straight away with its source link. The person who shared it can add the place by hand right then (free, FR-L20), or it's AI-sorted with their next day's allowance. Other members can't spend their imports on someone else's link, and nobody is blocked: anyone can add or fix the place by hand (same as "wrong place? fix," FR-23).
   - Voting, viewing, comments, splits and settling up are never capped or paywalled.
-  - **Upgrade prompts appear only in the app or web,** never in a text (no marketing in texts, FR-84). A no-app guest who texts in a link over the cap gets a plain reply: "Added. We'll sort it tomorrow."
+  - **Upgrade prompts appear only in the app or web,** never in a text (no marketing in texts, FR-84). A no-app guest who texts in a link over the cap gets a plain reply: "Added. Reply with the place name to pin it now, or we'll sort it tomorrow." The reply is matched with the place search, no AI.
   - Upgrading is a money action, so a guest on a personal link needs the SMS code first (FR-5).
 - **FR-L24** **POC: no paywall.** The POC logs imports per person per day and shows no limit or upgrade screen (D52: no revenue fake doors in the POC). The existing abuse rate limits (FR-34) still apply.
 
@@ -741,7 +741,7 @@ Analysis:
   - **Goal:** after 100–200 real trips, know whether the business is mainly affiliate, vendor marketplace, or card/payments, instead of guessing from industry rates.
   - **Target to aim for later:** more than $10 revenue per activated trip against about $3 variable cost.
 - **Decision rule:** if fewer than 30% of decided Stays could be booked through a commission-paying site, plan around **$3–12 per trip from links** and prioritize revenue streams that don't depend on booking links.
-- **Never charge** for guest participation, voting, splitting or being in a trip. The only thing ever paywalled for consumers is AI imports beyond 3 a day and Premium extras (D61, D62). That cap applies to guests too, but an over-cap idea still reaches the trip unsorted (FR-L23).
+- **Never charge** for guest participation, voting, splitting or being in a trip. The only thing ever paywalled for consumers is AI imports beyond 3 a day and Premium extras (D61, D62). That cap applies to guests too, but only to AI: anyone can still add places by hand for free (FR-L20, FR-L23).
 - **NFR:** an internal dashboard of cost vs. revenue per trip from day one.
 
 ## 12. Success Metrics (POC)
@@ -822,7 +822,7 @@ Analysis:
 | D58 | Duo budgets | Shared openly, with a heads-up |
 | D60 | Idea library | In the POC (minimal): a personal library for saving travel ideas with no trip. AI auto-sorts by country, city and category; map; custom and shared boards; "trip-ready" nudge; one tap to start a trip. Alerts (best time to go, prices, place updates) in Phase 2, push and email only (§6.12) |
 | D61 | Library monetization | Freemium, ReciMe-style: free up to 3 AI imports per person per day (to be tuned), Premium for more. **7-day free trial that converts to paid unless cancelled**, with a reminder before conversion and easy cancel (FR-L21a). The cap applies to every person, guests included (D62). Paywall ships after the POC; the POC only measures (FR-L20–L24) |
-| D62 | Who the import cap applies to | Everyone, including trip guests: 3 free AI imports per person per day across the library, solo trips and group trips. Over-cap ideas still reach the trip unsorted; voting and splitting are never capped. Upgrade prompts never go by text (FR-L23) |
+| D62 | Who the import cap applies to | Everyone, including trip guests: 3 free AI imports per person per day across the library, solo trips and group trips. The cap only limits AI imports: adding a place by hand is always free, so over-cap ideas still reach the trip. Voting and splitting are never capped. Upgrade prompts never go by text (FR-L23) |
 | D63 | Flight fare data | Add a fare API to scope in Phase 2 for library price alerts (FR-L17), separate from FlightAware AeroAPI (status only). Provider chosen at build time (§7a) |
 | D59 | Plan optimization | In the POC: "Arrange my days" suggests a day-by-day order; the user previews, tweaks and locks. Considers geography, hours and fixed times, meals and pace, priority and attendance (weather is a stretch) |
 | D50 | Collection fees | No fee for collecting money. "Collect for the house" is free, tracked through Venmo/Zelle links |
