@@ -15,6 +15,13 @@
       "when": 1790869857426,
       "tag": "0001_budget_open_to",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790883264830,
+      "tag": "0002_idea_library",
+      "breakpoints": true
     }
   ]
 }
