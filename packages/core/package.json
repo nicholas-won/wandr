@@ -5,7 +5,13 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "exports": { ".": "./src/index.ts", "./voting": "./src/voting/index.ts", "./*": "./src/*.ts" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./money": "./src/money/index.ts",
+    "./voting": "./src/voting/index.ts",
+    "./optimizer": "./src/optimizer/index.ts",
+    "./*": "./src/*.ts"
+  },
   "scripts": { "test": "vitest run", "typecheck": "tsc -p ." },
-  "devDependencies": { "typescript": "5.9.3", "vitest": "^5.0.3" }
+  "devDependencies": { "fast-check": "^4.10.2", "typescript": "5.9.3", "vitest": "^5.0.3" }
 }
