@@ -24,6 +24,11 @@ export type FullSessionPayload = {
   userId: string;
   /** Recycled-number extra check pending (FR-16, J-4): no money/approvals/settings until resolved. */
   needsRecheck?: boolean;
+  /**
+   * Zero-setup creator (P1, FR-1): a device-only user who hasn't verified a phone yet. Acts as
+   * themselves on their own trips; anything that reaches other people (invites) needs a code.
+   */
+  provisional?: boolean;
 };
 
 export type LinkGrant = { memberId: string; tripId: string; linkId: string };

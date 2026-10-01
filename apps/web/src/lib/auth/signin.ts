@@ -23,7 +23,8 @@ import {
   OTP_LIMITS,
   type OtpCounts,
 } from "./rate-limit";
-import { requireFull, setFullSession } from "./session";
+import { getSession, requireFull, setFullSession } from "./session";
+import { adoptProvisionalUser } from "./provisional";
 import { OTP_TTL_SECONDS, signPayload, verifyPayload } from "./tokens";
 import { VERIFY_COST_MICROS } from "@/lib/messaging/cost";
 import { wrongNumberReportedSince } from "@/lib/messaging/opt-out";
@@ -201,9 +202,26 @@ export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
   }
 
   const now = new Date();
+  const provisional = (await getSession()).user;
+  const provisionalId = provisional?.provisional ? provisional.userId : null;
   const result = await asService(db, async (tx) => {
     const byDest = ch.channel === "sms" ? eq(users.phone, ch.destination) : eq(users.email, ch.destination);
     const [existing] = await tx.select().from(users).where(byDest).limit(1);
+    if (!existing && provisionalId) {
+      // P1/FR-1: the zero-setup creator verifies; their device user becomes the verified user.
+      const [adopted] = await tx
+        .update(users)
+        .set({
+          lastSignInAt: now,
+          ...(ch.channel === "sms" ? { phone: ch.destination } : { email: ch.destination }),
+        })
+        .where(eq(users.id, provisionalId))
+        .returning();
+      if (adopted) return { user: adopted, isNewUser: false, recheck: false };
+    }
+    if (existing && provisionalId && provisionalId !== existing.id) {
+      await adoptProvisionalUser(tx, provisionalId, existing.id);
+    }
     if (existing) {
       // FR-16 / J-4: long-inactive number, or someone replied WRONG to it since the last sign-in.
       const recheck =

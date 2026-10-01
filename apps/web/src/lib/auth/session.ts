@@ -22,7 +22,7 @@ import {
   type LinkGrant,
 } from "./tokens";
 
-export type FullUser = { userId: string; needsRecheck: boolean };
+export type FullUser = { userId: string; needsRecheck: boolean; provisional?: boolean };
 export type Session = {
   /** Verified person, or null. */
   user: FullUser | null;
@@ -47,7 +47,9 @@ export const getSession = cache(async (): Promise<Session> => {
   const linkCookie = await verifyPayload(jar.get(COOKIE.links)?.value, "links");
   const links = linkCookie ? await liveGrants(linkCookie.grants) : [];
   return {
-    user: full ? { userId: full.userId, needsRecheck: !!full.needsRecheck } : null,
+    user: full
+      ? { userId: full.userId, needsRecheck: !!full.needsRecheck, provisional: !!full.provisional }
+      : null,
     links,
   };
 });
@@ -97,15 +99,20 @@ export function linkGrantFor(session: Session, tripId: string): LinkGrant | unde
  * Throws AuthError; pages should prefer `requireFullOrRedirect`.
  * A pending recycled-number check (FR-16, J-4) blocks unless `allowRecheck` is set.
  */
-export async function requireFull(opts: { allowRecheck?: boolean } = {}): Promise<FullUser> {
+export async function requireFull(
+  opts: { allowRecheck?: boolean; allowProvisional?: boolean } = {},
+): Promise<FullUser> {
   const { user } = await getSession();
-  if (!user) throw new AuthError("signin_required");
+  if (!user || (user.provisional && !opts.allowProvisional)) throw new AuthError("signin_required");
   if (user.needsRecheck && !opts.allowRecheck) throw new AuthError("recheck_required");
   return user;
 }
 
 /** Page helper: redirect to /signin (then back to `next`) when there is no full session. */
-export async function requireFullOrRedirect(next: string, opts: { allowRecheck?: boolean } = {}) {
+export async function requireFullOrRedirect(
+  next: string,
+  opts: { allowRecheck?: boolean; allowProvisional?: boolean } = {},
+) {
   try {
     return await requireFull(opts);
   } catch (e) {
@@ -120,7 +127,12 @@ export async function requireFullOrRedirect(next: string, opts: { allowRecheck?:
 
 export async function setFullSession(user: FullUser): Promise<void> {
   const token = await signPayload(
-    { k: "full", userId: user.userId, ...(user.needsRecheck ? { needsRecheck: true } : {}) },
+    {
+      k: "full",
+      userId: user.userId,
+      ...(user.needsRecheck ? { needsRecheck: true } : {}),
+      ...(user.provisional ? { provisional: true } : {}),
+    },
     SESSION_TTL_SECONDS,
   );
   (await cookies()).set(COOKIE.session, token, cookieOptions(SESSION_TTL_SECONDS));
