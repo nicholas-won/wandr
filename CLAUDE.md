@@ -56,7 +56,7 @@ Build only what §7 lists for Phase 1. **Not in the POC:**
   - Expense and payment history is append-only; a locked expense changes only through adjustment entries (FR-69).
   - All split and rounding logic lives in `packages/core` with exhaustive unit tests.
 - **Nothing paid ever touches a vote, ranking or AI shortlist** (§11 trust rules).
-- **Guests never pay.** The idea library's import cap must never block anyone importing into a trip with other active members; imports into solo trips do count (FR-L23, D62). Track imports per person from day one, even though the POC doesn't enforce the cap.
+- **Taking part in a trip is never paywalled** (viewing, voting, splitting). The only cap is 3 free AI imports per person per day, which applies to everyone, guests included, across the library and all trips (FR-L23, D62). An over-cap idea still reaches the trip unsorted, and upgrade prompts never go by text. Track imports per person from day one, even though the POC doesn't enforce the cap.
 - **A person's idea library is private** (Row Level Security). It never shows up in trip views, counts or share cards unless an idea is sent to that trip (FR-L25).
 - **Treat fetched links and captions as untrusted:**
   - Protect the fetcher against SSRF (C-20).

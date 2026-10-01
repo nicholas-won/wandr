@@ -550,7 +550,7 @@ Once the group has decided **where** and **what**, the app helps with **when and
 
 **Passive value: alerts** *(Phase 2; push and email only, never SMS; all opt-in per board)*
 - **FR-L16** **Best time to go:** each city tile shows its best months and current season ("Peak season · hot"). A gentle alert comes when a saved city enters its best window.
-- **FR-L17** **Price alerts:** flight-price drops from the user's home airport to a saved city, and price drops on saved stays where the provider allows it. **Needs a fare data source:** FlightAware AeroAPI (§7a) covers flight status only and has no fares, so the provider is **[OPEN]** (§14). Plain links only until affiliate links ship (§11 trust rules: a paid placement never changes what's shown in the library).
+- **FR-L17** **Price alerts:** flight-price drops from the user's home airport to a saved city, and price drops on saved stays where the provider allows it. **Fare data comes from a separate fare API** (§7a, D63), since FlightAware AeroAPI covers flight status only. Provider **[OPEN]** (§14). Plain links only until affiliate links ship (§11 trust rules: a paid placement never changes what's shown in the library).
 - **FR-L18** **Place updates:** saved places that close permanently (FR-33) are flagged in the POC; Phase 2 adds alerts for new hours or reopening.
 - **FR-L19** **Alert throttling:** at most **1 library alert per person per week [OPEN]**, batched into a single digest.
 
@@ -565,7 +565,11 @@ Once the group has decided **where** and **what**, the app helps with **when and
   - After converting: a receipt email, and a renewal reminder before each yearly renewal.
   - **Legal review before launch** of US state auto-renewal laws (e.g. California's) and app-store subscription rules for the native app.
 - **FR-L22** **What counts as an import:** a new AI extraction the person starts. Cache hits (an already-resolved URL, FR-34), failed extractions, typed plain-text ideas and sending existing saves to a trip don't count.
-- **FR-L23** **The cap never blocks group participation.** Guests never pay (§11): importing into a trip that has other active members never hits the paywall. **Imports into a solo trip do count toward the cap** (D62), so a solo trip isn't a way around it. If a solo trip later gains a member, imports from then on are exempt; earlier ones aren't refunded.
+- **FR-L23** **The cap applies to everyone, everywhere** (D62): every person, including trip guests and no-app members, gets 3 free AI imports a day, counted across their library, solo trips and group trips.
+  - **Over the cap inside a trip,** the idea still shows up for the group straight away, as an unsorted card with its source link, so nobody loses it. It's sorted with the person's next day's allowance, or right away by anyone with imports left who taps "Sort it now." Typing the place name (plain text) never counts.
+  - Voting, viewing, comments, splits and settling up are never capped or paywalled.
+  - **Upgrade prompts appear only in the app or web,** never in a text (no marketing in texts, FR-84). A no-app guest who texts in a link over the cap gets a plain reply: "Added. We'll sort it tomorrow."
+  - Upgrading is a money action, so a guest on a personal link needs the SMS code first (FR-5).
 - **FR-L24** **POC: no paywall.** The POC logs imports per person per day and shows no limit or upgrade screen (D52: no revenue fake doors in the POC). The existing abuse rate limits (FR-34) still apply.
 
 **Privacy**
@@ -577,7 +581,7 @@ Once the group has decided **where** and **what**, the app helps with **when and
 | Phase | Scope |
 |---|---|
 | **1. Web POC** | Both ways to start; personal links, join with code and approval, roles. Stages and Stops with attendance per Stop. Capture by link, screenshot, text or texting the app's number, with AI extraction and filing under Stops. Blind voting, polls, custom polls. Receipts (even or itemized), categories, balances per currency. Bachelor/bachelorette mode. **"Arrange my days" plan optimizer (basic; weather is a stretch).** **Idea library, minimal (§6.12):** save with no trip, text to save, auto-sort, city grid and map, custom and shared boards, in-app "trip-ready" nudge, start a trip from a board, closed-place flags. Imports are logged, not capped (FR-L24). One-way texts plus replies to vote and approve. **No offline support. No flight tracking.** |
-| **2. Native app** | Share sheet. Push notifications. Offline (cached plan plus queued receipt uploads). Settle-up buttons for Venmo and others; free "Collect for the house" tracking. Flight tracking with live alerts. Personal profile and stats. Trip Wrapped. Templates. Share sheet into the idea library. Library alerts (best time to go, price drops, place updates). **Revenue:** **Premium subscription for the idea library** (free tier: 3 AI imports a day, D61), affiliate links on decided Stays and activities, bachelor/bachelorette merch, Decide→Book→Arrive cards, creator revenue share |
+| **2. Native app** | Share sheet. Push notifications. Offline (cached plan plus queued receipt uploads). Settle-up buttons for Venmo and others; free "Collect for the house" tracking. Flight tracking with live alerts. Personal profile and stats. Trip Wrapped. Templates. Share sheet into the idea library. Library alerts (best time to go, price drops via the fare API, place updates). **Revenue:** **Premium subscription for the idea library** (free tier: 3 AI imports a day, D61), affiliate links on decided Stays and activities, bachelor/bachelorette merch, Decide→Book→Arrive cards, creator revenue share |
 | **3. Expansion** | iMessage extension. Side plans. Brand rebates, venue perks and tourism-board deals once there's volume. Badges and annual Travel Wrapped. More SMS countries |
 | **Future / unscheduled** | Group trip card (interchange), only if 25%+ of trips pool $1,500+. Payments in the app. B2B (planner tier, offsites, white-label). All need legal review or a decision after the POC |
 
@@ -610,7 +614,8 @@ Goal: one TypeScript codebase, managed services, minimal ops. Optimize for shipp
 | **Testing** | **Vitest** (unit; required for all money math) + **Playwright** (end-to-end core flows) | Money math must have exhaustive tests (NFR-4) |
 | **Money representation** | Integer minor units (cents) + ISO currency code; no floats | Leftover pennies assigned predictably; history is append-only |
 | *Phase 2* **Native app** | **Expo (React Native)** + shared TypeScript types and API client | Share extension (share sheet), push (Expo Notifications / APNs / FCM), offline cache |
-| *Phase 2* **Flight data** | **FlightAware AeroAPI** (alerts, not repeated status checks) | Push and email only (D40) |
+| *Phase 2* **Flight data** | **FlightAware AeroAPI** (alerts, not repeated status checks) | Push and email only (D40). Status only, no fares |
+| *Phase 2* **Flight fares** | **Fare search API, provider [OPEN]** (evaluate Duffel, Kiwi Tequila, Travelpayouts/Skyscanner feed) | Powers library price-drop alerts only (FR-L17, D63). Cache per route and day; check saved routes on a schedule, not per user. Plain links until affiliate links ship. Push and email only |
 | *Phase 2* **Merch** | **Printful API** | Mockups and orders |
 
 **Repo layout (proposed):** a monorepo (pnpm workspaces): `apps/web` (Next.js), later `apps/mobile` (Expo), `packages/db` (Drizzle schema), `packages/core` (domain logic: splits, ranking, permissions, no framework code), `packages/ai` (extraction and receipt prompts plus evals).
@@ -661,8 +666,8 @@ Analysis:
 - [`research/revenue-model.md`](research/revenue-model.md): our costs
 - [`research/monetization-benchmarks.md`](research/monetization-benchmarks.md): how comparable apps make money, plus a bottom-up revenue model
 
-- **The problem:** people take a trip once or twice a year, so a trip-only app can't support a subscription. Revenue must come from **money already flowing through the trip**, and guests never pay.
-- **The fix: the idea library (§6.12, D60–D61).** Travel lovers save ideas every week whether or not a trip is planned, which is how ReciMe built a subscription business around an occasional task (cooking a saved recipe). That supports a **freemium subscription for the person who saves**: free up to 3 AI imports a day, Premium for more. Trip guests, voting, splitting and texting stay free forever.
+- **The problem:** people take a trip once or twice a year, so a trip-only app can't support a subscription. Revenue must come from **money already flowing through the trip**, and guests never pay to take part.
+- **The fix: the idea library (§6.12, D60–D61).** Travel lovers save ideas every week whether or not a trip is planned, which is how ReciMe built a subscription business around an occasional task (cooking a saved recipe). That supports a **freemium subscription**: everyone, guests included, gets 3 AI imports a day free, and Premium for more. Taking part in a trip (viewing, voting, splitting, texting) stays free forever.
 - **Our cost per trip** (8 people, 5 without the app): **about $2.50–3.50** with group-chat sharing (D49) and other optimizations.
 - **Revised revenue per trip (bottom-up, estimates):**
 
@@ -686,7 +691,7 @@ Analysis:
 
   | Stream | When | Est. $ per trip (cons. / base / opt.) | Notes |
   |---|---|---|---|
-  | **Idea library Premium** (subscription; free tier 3 AI imports a day) | Phase 2 (POC measures save frequency first) | Per subscriber, not per trip; price **[OPEN]** (benchmarks: ReciMe $59.99/yr, Wanderlog $39.99/yr) | Only the saver pays; never guests. Premium never changes votes, rankings or shortlists |
+  | **Idea library Premium** (subscription; free tier 3 AI imports a day) | Phase 2 (POC measures save frequency first) | Per subscriber, not per trip; price **[OPEN]** (benchmarks: ReciMe $59.99/yr, Wanderlog $39.99/yr) | Anyone importing more than 3 a day can upgrade, guests included (D62). Taking part in a trip is never paywalled. Premium never changes votes, rankings or shortlists |
   | Hotel and rental links on the decided Stay | Phase 2 | Part of $2–4 / $9–15 / $35–50 | Airbnb pays nothing; Booking.com about 3.75%; Vrbo 2% |
   | Activity links (Viator, GetYourGuide 8%) | Phase 2 | (included above) | Most bachelor/bachelorette activities aren't listed there |
   | **Merch** (matching shirts and hats from the theme poll, through Printful) | Phase 2, bachelor/bachelorette trips | $2 / $11 / $47 per bach trip | About $8–12 margin per item. Hard ordering cutoff 21 days before the trip; block trademarked logos and names |
@@ -736,7 +741,7 @@ Analysis:
   - **Goal:** after 100–200 real trips, know whether the business is mainly affiliate, vendor marketplace, or card/payments, instead of guessing from industry rates.
   - **Target to aim for later:** more than $10 revenue per activated trip against about $3 variable cost.
 - **Decision rule:** if fewer than 30% of decided Stays could be booked through a commission-paying site, plan around **$3–12 per trip from links** and prioritize revenue streams that don't depend on booking links.
-- **Never charge** for guest participation, voting, splitting or being in a trip. The only thing ever paywalled for consumers is the idea library's import limit and Premium extras (D61).
+- **Never charge** for guest participation, voting, splitting or being in a trip. The only thing ever paywalled for consumers is AI imports beyond 3 a day and Premium extras (D61, D62). That cap applies to guests too, but an over-cap idea still reaches the trip unsorted (FR-L23).
 - **NFR:** an internal dashboard of cost vs. revenue per trip from day one.
 
 ## 12. Success Metrics (POC)
@@ -816,8 +821,9 @@ Analysis:
 | D57 | Duo decisions | The owner decides (same as groups) |
 | D58 | Duo budgets | Shared openly, with a heads-up |
 | D60 | Idea library | In the POC (minimal): a personal library for saving travel ideas with no trip. AI auto-sorts by country, city and category; map; custom and shared boards; "trip-ready" nudge; one tap to start a trip. Alerts (best time to go, prices, place updates) in Phase 2, push and email only (§6.12) |
-| D61 | Library monetization | Freemium, ReciMe-style: free up to 3 AI imports per person per day (to be tuned), Premium for more. **7-day free trial that converts to paid unless cancelled**, with a reminder before conversion and easy cancel (FR-L21a). Only the saver pays; never trip guests. Paywall ships after the POC; the POC only measures (FR-L20–L24) |
-| D62 | Solo-trip imports | Count toward the free import cap; only trips with 2+ active members are exempt (FR-L23) |
+| D61 | Library monetization | Freemium, ReciMe-style: free up to 3 AI imports per person per day (to be tuned), Premium for more. **7-day free trial that converts to paid unless cancelled**, with a reminder before conversion and easy cancel (FR-L21a). The cap applies to every person, guests included (D62). Paywall ships after the POC; the POC only measures (FR-L20–L24) |
+| D62 | Who the import cap applies to | Everyone, including trip guests: 3 free AI imports per person per day across the library, solo trips and group trips. Over-cap ideas still reach the trip unsorted; voting and splitting are never capped. Upgrade prompts never go by text (FR-L23) |
+| D63 | Flight fare data | Add a fare API to scope in Phase 2 for library price alerts (FR-L17), separate from FlightAware AeroAPI (status only). Provider chosen at build time (§7a) |
 | D59 | Plan optimization | In the POC: "Arrange my days" suggests a day-by-day order; the user previews, tweaks and locks. Considers geography, hours and fixed times, meals and pace, priority and attendance (weather is a stretch) |
 | D50 | Collection fees | No fee for collecting money. "Collect for the house" is free, tracked through Venmo/Zelle links |
 | D49 | Message channels | Push for app users. Group-chat share cards (free) for group news. SMS only for codes, invites, money and personal nudges. Email as a backup. No web push |
@@ -834,5 +840,5 @@ Analysis:
    - Premium price and any perks beyond more imports (FR-L21).
    - What counts as an "active trip" when routing texted-in links to a trip or the library (FR-83). Suggested default: a trip with activity in the last 14 days or dates in the next 60.
    - The "trip-ready" threshold (FR-L10) and the library alert frequency (FR-L19).
-   - Data sources for flight-price and stay-price alerts (FR-L17). FlightAware AeroAPI has no fares, so this needs a separate fare API (candidates to evaluate: Duffel, Kiwi Tequila, a Skyscanner or Travelpayouts affiliate feed); the choice affects §7a and cost.
+   - Which fare API to use for flight-price alerts (D63: Duffel, Kiwi Tequila or a Travelpayouts/Skyscanner feed), its cost per check, and the data source for stay-price alerts (FR-L17).
    - Billing provider for Premium on the web (e.g. Stripe Billing) and in the native app (app-store subscriptions), and the exact reminder timing for the trial.
