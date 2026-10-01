@@ -10,7 +10,7 @@
  */
 import { cookies } from "next/headers";
 import { and, eq, gte, sql } from "drizzle-orm";
-import { asService, auditLog, getDb, otpRequests, users, type Tx } from "@wandr/db";
+import { asService, auditLog, getDb, members, otpRequests, users, type Tx } from "@wandr/db";
 import { getCaptcha } from "./captcha";
 import { COOKIE, cookieOptions } from "./cookies";
 import { keyedHash } from "./crypto";
@@ -24,7 +24,7 @@ import {
   type OtpCounts,
 } from "./rate-limit";
 import { getSession, requireFull, setFullSession } from "./session";
-import { adoptProvisionalUser } from "./provisional";
+import { adoptProvisionalUser, PROVISIONAL_NAME } from "./provisional";
 import { OTP_TTL_SECONDS, signPayload, verifyPayload } from "./tokens";
 import { VERIFY_COST_MICROS } from "@/lib/messaging/cost";
 import { wrongNumberReportedSince } from "@/lib/messaging/opt-out";
@@ -273,6 +273,13 @@ export async function setDisplayName(input: string): Promise<{ ok: boolean }> {
   const name = cleanDisplayName(input);
   if (!name) return { ok: false };
   const db = await getDb();
-  await asService(db, (tx) => tx.update(users).set({ displayName: name }).where(eq(users.id, user.userId)));
+  await asService(db, async (tx) => {
+    await tx.update(users).set({ displayName: name }).where(eq(users.id, user.userId));
+    // Zero-setup creators start as "Me" on their trips (P1); give those rows the real name.
+    await tx
+      .update(members)
+      .set({ displayName: name })
+      .where(and(eq(members.userId, user.userId), eq(members.displayName, PROVISIONAL_NAME)));
+  });
   return { ok: true };
 }

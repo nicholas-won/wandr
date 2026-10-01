@@ -7,8 +7,8 @@
  */
 import { and, eq, ne, or } from "drizzle-orm";
 import {
+  aiImports,
   asService,
-  events,
   extractionCache,
   ideas,
   ideaSources,
@@ -27,6 +27,7 @@ import {
   type ResolveCache,
   type ResolvedIdea,
 } from "@wandr/ai";
+import { DEFAULT_TRIP_NAME } from "./trips";
 
 /** First line of a typed idea becomes the title (FR-25 plain-text ideas). */
 function provisionalTitle(raw: string, kind: string): string {
@@ -208,20 +209,37 @@ export async function applyResolution(
         .where(eq(ideas.id, ideaId));
     }
 
-    // FR-L20–L24 / D62: log every new AI extraction per person; the POC enforces no cap.
-    if (r.countsAsImport && sharedByMemberId) {
+    // FR-L20–L24 / D62: log every import attempt per person in every context. The trigger sets
+    // `counted`; the POC enforces no cap (FR-L24).
+    if (sharedByMemberId) {
       const [m] = await tx
         .select({ userId: members.userId })
         .from(members)
         .where(eq(members.id, sharedByMemberId));
-      await tx.insert(events).values({
-        name: "ai_import",
-        tripId,
-        memberId: sharedByMemberId,
-        props: { userId: m?.userId ?? null, ideaId: target ?? ideaId, extractor: r.extractor, model: r.model },
-      });
+      if (m?.userId) {
+        await tx.insert(aiImports).values({
+          userId: m.userId,
+          tripId,
+          ideaId: target ?? ideaId,
+          kind: r.source.kind === "text" ? "text" : r.fromCache ? "cache_hit" : r.state === "failed" ? "failed" : "extraction",
+          normalizedUrl: r.source.normalizedUrl,
+        });
+      }
     }
     await tx.update(trips).set({ lastActivityAt: new Date() }).where(eq(trips.id, tripId));
+
+    // FR-1a: a trip started from a paste takes its name and city from the first idea.
+    const [trip] = await tx.select({ name: trips.name }).from(trips).where(eq(trips.id, tripId));
+    const city = p?.regionOrCity ?? p?.cityHint ?? null;
+    if (trip?.name === DEFAULT_TRIP_NAME && (r.suggestedTripName || city)) {
+      await tx
+        .update(trips)
+        .set({ name: (r.suggestedTripName ?? `${city} trip`).slice(0, 80) })
+        .where(eq(trips.id, tripId));
+      if (city && tripStops.length === 1) {
+        await tx.update(stops).set({ name: city }).where(eq(stops.id, tripStops[0]!.id));
+      }
+    }
   });
 }
 

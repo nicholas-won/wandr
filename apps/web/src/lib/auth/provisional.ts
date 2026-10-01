@@ -6,10 +6,13 @@
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { members, savedIdeas, trips, users, type Tx } from "@wandr/db";
 
-export async function createProvisionalUser(tx: Tx, displayName: string): Promise<string> {
+/** Member name until the creator tells us theirs (asked when they verify to send invites). */
+export const PROVISIONAL_NAME = "Me";
+
+export async function createProvisionalUser(tx: Tx): Promise<string> {
   const [u] = await tx
     .insert(users)
-    .values({ displayName: displayName.trim().slice(0, 40) || "Me" })
+    .values({ displayName: "" })
     .returning({ id: users.id });
   return u!.id;
 }

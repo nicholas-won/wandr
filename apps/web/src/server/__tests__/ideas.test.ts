@@ -1,7 +1,7 @@
 /** Capture → resolve → file → dedupe (FR-20–26), against PGlite + RLS. No network. */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { asService, events, users, type Db } from "@wandr/db";
+import { aiImports, asService, users, type Db } from "@wandr/db";
 import { createPglite } from "@wandr/db/pglite";
 import type { ResolvedIdea, resolveIdea } from "@wandr/ai";
 import { addIdea, resolveIdeaJob } from "../ideas";
@@ -81,8 +81,9 @@ describe("idea capture", () => {
     expect(card.stopId).toBe(s.stopId); // one-city trip → hidden default Stop
     expect(card.creatorHandle).toBe("@eats");
 
-    const imports = await asService(s.d, (tx) => tx.select().from(events));
-    expect(imports.filter((e) => e.name === "ai_import")).toHaveLength(1);
+    const imports = await asService(s.d, (tx) => tx.select().from(aiImports));
+    expect(imports).toHaveLength(1);
+    expect(imports[0]!.counted).toBe(true);
   });
 
   it("merges a duplicate place into one card (FR-22)", async () => {

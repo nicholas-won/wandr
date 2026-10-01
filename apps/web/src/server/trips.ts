@@ -20,6 +20,9 @@ import { ideaReveals } from "@wandr/db/reveals";
 import { tripSize, type TripSize, type VoteValue } from "@wandr/core";
 import { buildIdeaCards, type IdeaCard } from "./cards";
 
+/** Placeholder until the first idea suggests a name (FR-1a "Start a trip around this?"). */
+export const DEFAULT_TRIP_NAME = "New trip";
+
 export const STAGES = ["where", "when", "stay", "getting_around", "do"] as const;
 
 /**
@@ -66,6 +69,8 @@ export interface TripView {
   trip: { id: string; name: string; size: TripSize };
   me: { memberId: string; role: "owner" | "organizer" | "member"; displayName: string; noticesSeen: string[] };
   members: { id: string; displayName: string; role: string; status: string; isGuestOfHonor: boolean }[];
+  /** Invited/pending people. RLS returns these rows to organizers only. */
+  invited: { id: string; displayName: string; status: string }[];
   stops: { id: string; name: string; isDefault: boolean; position: number }[];
   ideas: IdeaCard[];
 }
@@ -128,6 +133,9 @@ export async function getTripView(db: Db, claims: Claims, tripId: string): Promi
           status,
           isGuestOfHonor,
         })),
+      invited: memberRows
+        .filter((m) => m.status === "invited" || m.status === "pending")
+        .map(({ id, displayName, status }) => ({ id, displayName, status })),
       stops: stopRows,
       ideas: buildIdeaCards({
         size,

@@ -30,6 +30,8 @@ export interface IdeaRow {
   placeId: string | null;
   lat: number | null;
   lng: number | null;
+  createdByMemberId: string | null;
+  candidates: unknown;
 }
 
 export interface SourceRow {
@@ -76,6 +78,8 @@ export interface IdeaCard {
   namedVotes: { name: string; label: string; isMe: boolean }[];
   splitOpinions: string | null;
   rank: number | null;
+  /** FR-24: listicle places, shown only to the person who shared it. */
+  listicle: { name: string; summary: string }[] | null;
 }
 
 export const REVIEW_THRESHOLD = 0.6;
@@ -155,6 +159,13 @@ export function buildIdeaCards(args: {
       namedVotes,
       splitOpinions: score && isSplitOpinions(score, size) ? SPLIT_OPINIONS_LABEL : null,
       rank: null,
+      listicle:
+        idea.createdByMemberId === viewerMemberId && Array.isArray(idea.candidates)
+          ? (idea.candidates as { name: string; summary?: string }[]).map((c) => ({
+              name: c.name,
+              summary: c.summary ?? "",
+            }))
+          : null,
       _score: score,
       _createdAt: idea.createdAt,
     };
@@ -162,7 +173,12 @@ export function buildIdeaCards(args: {
   });
 
   const ordered = orderCards(size, viewerMemberId, cards);
-  return ordered.map(({ _score, _createdAt, ...c }) => c);
+  return ordered.map((c) => {
+    const out: Partial<Internal> = { ...c };
+    delete out._score;
+    delete out._createdAt;
+    return out as IdeaCard;
+  });
 }
 
 type Internal = IdeaCard & { _score: IdeaScore | null; _createdAt: Date };
