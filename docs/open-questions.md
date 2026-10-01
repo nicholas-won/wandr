@@ -59,3 +59,13 @@ move the answer into REQUIREMENTS.md §13 and update the code.
 | Q34 | Google terms: lat/lng only cacheable ~30 days | Coordinates kept in the short-lived display cache; refresh needed |
 | Q35 | Listicle Places lookups (up to 15) cost cap | 15 max, 4 concurrent |
 | Q36 | Extraction effort `medium` vs NFR-1 15 s | Needs live eval run with a key |
+
+## Web platform (apps/web)
+
+| # | Question | Provisional default |
+|---|---|---|
+| Q37 | Opening a personal link turns an `invited` member `active` (being on the invite list = approval) | Yes |
+| Q38 | Personal link opened on a second device | Refused; asks for sign-in code |
+| Q39 | Recycled-number recheck (J-4) second factor | `needsRecheck` blocks full actions; recheck step not built |
+| Q40 | FR-86 banned-word list for trip names in texts | Strict ("Wine country" → "your trip") |
+| Q41 | Not built yet: quiet hours (N-5), per-trip MUTE (N-2), delivery callbacks, server-side session revocation | Later slices |
