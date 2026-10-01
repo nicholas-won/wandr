@@ -143,7 +143,7 @@
 | **Printed or physical products** | Polarsteps books (main revenue, profitable) | Interesting but rejected for now (close to the rejected Bach Pack). A "Trip Wrapped" printed book could be revisited |
 | **Paid cosmetics** | Partiful premium invite designs | Rejected (Bach Pack) |
 | **Tipping or supporter** | Not found among the travel apps researched | Low expected value |
-| **Subscriptions** | Wanderlog, TripIt, Roadtrippers, Splitwise Pro, Layla | Ruled out (once or twice a year use) |
+| **Subscriptions** | Wanderlog, TripIt, Roadtrippers, Splitwise Pro, Layla | Ruled out for trips (once or twice a year use). **Revisited Oct 2026 (D61):** a ReciMe-style freemium subscription for the idea library, where people save every week (REQUIREMENTS §6.12) |
 
 ---
 

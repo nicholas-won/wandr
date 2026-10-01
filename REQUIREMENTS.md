@@ -1,4 +1,4 @@
-# Wandr (working name) — Requirements (Draft v0.9)
+# Wandr (working name) — Requirements (Draft v0.10)
 
 > Working name: **Wandr** (placeholder; the founder isn't sold on it because it sounds like a backpacker app, not a group-trip app). **[OPEN]** marks a decision still needed.
 >
@@ -20,8 +20,11 @@ A group trip "inbox" for friends:
 - On travel day, everyone can see who has landed.
 - During the trip, anyone can snap a receipt and the app splits it.
 - Friends take part fully from text messages with no app download, Partiful-style.
+- **Between trips, it's a personal idea library (§6.12).** Anyone who loves travel can drop in places they dream about with no trip at all. AI sorts them by country, city and category, puts them on a map, and says when there's enough for a trip. One tap turns a city's saves into a trip with the ideas already in it.
 
 **Hero moment (POC): "Drop a TikTok, get a vote."** Paste a link and an AI-resolved card appears. Friends get a personal text, vote in 2 taps without the app, and see the group result.
+
+**Second habit loop: "Save it now, go someday."** The ReciMe pattern applied to travel: share a TikTok, get a clean place card, filed automatically. This gives people a reason to open the app every week, not just once or twice a year (§11).
 
 **Pitches to test:**
 - "Drop the TikToks. Vote by text. Split the bill."
@@ -36,6 +39,7 @@ A group trip "inbox" for friends:
 - **Money causes the most friction.** 45% of group travelers report money conflict, and only about 1 in 4 groups set a budget.
 - **Multi-city trips are poorly supported.** Wanderlog suggests separate trips per city. Stippl breaks when you add cities. Almost no app handles people who join only part of a trip.
 - **Travel day is chaos.** "Has Jess landed?" "Who's getting the keys?"
+- **Travel inspiration has nowhere to live.** People save travel TikToks constantly, but they sit in TikTok and IG save folders, unsorted, and are forgotten by the time a trip happens. Trip apps only matter once a trip exists, so they're used once or twice a year.
 
 ## 2a. Product Principle: Simple First, Powerful When Needed
 
@@ -48,6 +52,7 @@ A group trip "inbox" for friends:
   - Expenses appear after the first receipt.
   - Flights appear on travel days.
   - Bachelor/bachelorette mode, the budget check-in and surprise mode are opt-in.
+  - **The idea library (§6.12)** is the home screen only for people who save outside a trip. Someone who joined through a trip invite sees just the trip until they save something of their own.
   - **Group features scale with trip size:** a solo trip shows no invites, reveals, polls or splits; a duo trip shows no group-chat or anonymity machinery (§6.10).
 - **P3 One clear primary action per screen** (e.g. "Vote," "Add idea," "Split").
 - **P4 Speed targets:**
@@ -81,6 +86,7 @@ A group trip "inbox" for friends:
 | **Guest of honor** | Enjoy the trip; doesn't see surprises; doesn't pay |
 | **Solo traveler** | A personal TikTok-to-plan inbox: save, prioritize, map, track spending. No group features in the way |
 | **Duo** (couple, siblings, two friends) | Quickly see where you agree, decide together without ceremony, split costs between two |
+| **Dreamer** (loves travel, saves constantly, may have no trip planned) | Drop ideas in with zero effort; have them sorted automatically; be told when a place is "trip-ready"; share a "someday" board with a partner or friends (§6.12) |
 
 ## 4. Positioning and Differentiation
 
@@ -92,6 +98,7 @@ Details: `research/competitors.md`, `research/differentiation.md`.
   2. Open balances that bring people back (Splitwise-style).
   3. Travel history: trips, flights and who you travel with (§6.8). Gives people a reason to open the app between trips.
   4. Data showing what the group decided and actually spent: which TikTok became a vote, then a visit, then a receipt.
+  5. **A personal library of saved places** (§6.12). The longer someone saves, the more valuable their library becomes and the harder it is to leave. It's also where future trips start.
 - **Closest threats:**
   - Places.is: link import, voting, joining with no account. No dates, Stops or money. **Hands-on check (Oct 2026): usage looks low,** which shows that features alone don't win; ease of use does (§2a).
   - Mindtrip: well funded.
@@ -114,6 +121,8 @@ Details: `research/competitors.md`, `research/differentiation.md`.
 - Post-trip "Trip Wrapped" recap
 - Trip templates ("Steal this weekend")
 - Travel stats and "miles together" shares
+- Shared "someday" boards (§6.12) that invite a partner or friends before any trip exists
+- "You've saved 12 places in Lisbon. Start a trip?" turning a solo library into a group trip
 
 ## 5. Core Concepts (Data Model)
 
@@ -146,6 +155,17 @@ Details: `research/competitors.md`, `research/differentiation.md`.
 - **Flight**: member, airline and flight number, date, origin and destination, live status, the trip it's linked to.
 - **Plan item**: a planned idea placed on a day within a Stop: start time (optional), expected duration, travel mode and time from the previous item, `locked` flag, who's going (defaults to the people attending that Stop), and the reason the optimizer placed it there.
 - **Comment**: on an idea or an expense.
+- **Saved idea** (idea library, §6.12):
+  - Owner (one person, not a trip), source link and clip, the same AI fields as an Idea (place ID, category, summary, price level, confidence), creator handle.
+  - Auto-sorted location: country, city or region, and category. The user can override any of them.
+  - Optional personal note and "someday priority" (the solo Must-do / Maybe / Skip buttons).
+  - Boards it belongs to; trips it has been sent to.
+- **Board**: a named collection of saved ideas.
+  - **Auto boards** (one per country and city, plus categories) are computed from the saves, not stored lists.
+  - **Custom boards** are created by the user ("Honeymoon someday," "Japan with Sam").
+  - A board can be **shared** with members who can view and add. Shared boards have no votes, splits or roles beyond owner and member.
+- **Idea ↔ saved idea:** sending a saved idea to a trip **copies** it into a trip Idea, linked back to the source. Votes and comments stay in the trip and never flow back to the library; deleting the saved idea doesn't touch the trip.
+- **Plan / entitlement:** `free` | `premium`, plus a daily AI-import counter per person (§6.12, §11).
 
 ## 6. Functional Requirements
 
@@ -181,7 +201,7 @@ The trip moves through **fixed stages**. In each one the group sends ideas, vote
 ### 6.1 Trip creation, joining and roles
 
 - **FR-1** **Two ways to start:**
-  - (a) Paste or upload anything (TikTok, IG, YouTube or Maps link, any URL, screenshot, plain text). The app shows the AI card and offers "Start a trip around this?", suggesting a trip name and Stop.
+  - (a) Paste or upload anything (TikTok, IG, YouTube or Maps link, any URL, screenshot, plain text). The app shows the AI card, **saves it to the person's idea library** (§6.12), and offers "Start a trip around this?", suggesting a trip name and Stop.
   - (b) Classic setup: name, destination(s), dates.
   - In both, the phone is verified only when invites are sent.
 - **FR-2** **Roles:**
@@ -222,7 +242,7 @@ The trip moves through **fixed stages**. In each one the group sends ideas, vote
 - **FR-20** **Web POC:**
   - Paste a link (TikTok, IG, YouTube, Maps, any URL), upload a screenshot, or type an idea.
   - Or text a link or screenshot to the app's number (§6.6).
-- **FR-21** *(Native app)* Share from any app through the OS **share sheet**, then pick a trip. Defaults to the most recently active trip; AI picks the Stop.
+- **FR-21** *(Native app)* Share from any app through the OS **share sheet**, then pick a trip **or "Save for someday"** (the idea library, §6.12). Defaults to the most recently active trip if there is one, otherwise the library; AI picks the Stop or board.
 - **FR-22** **Duplicates** merge into one card: "also shared by X."
 - **FR-23** **Auto-add:**
   - The card appears instantly in a "processing" state and fills in when extraction finishes.
@@ -355,6 +375,7 @@ The trip must work fully without the app. Each message goes through the cheapest
 - **FR-83** **Routing replies:**
   - Only one question is open per person at a time, so "reply 1" is never ambiguous. (DN-23)
   - Texted-in ideas and receipts go to the most recently active trip and Stop, with a reply link to move them.
+  - **If the person has no active trip, texted-in ideas go to their idea library** (§6.12, FR-L2). The definition of "active trip" for this rule is **[OPEN]** (see §14).
 - **FR-84** **Throttling:** at most about 1 text per person per day unless something is time-sensitive. Target: **10–12 texts per no-app member per trip**, mostly invite, money and personal nudges.
 - **FR-85** **STOP and HELP:**
   - Sign-in codes come from a separate number, so STOP doesn't block sign-in. (DN-22)
@@ -498,12 +519,65 @@ Once the group has decided **where** and **what**, the app helps with **when and
 
 **Implementation note:** a deterministic scheduling engine in `packages/core` does the placement. It handles clustering, time windows and constraints, and is testable and repeatable. Claude writes the explanations and turns fuzzy preferences into constraints ("we're not morning people"). The AI never makes up hours or travel times; those come from the places and routing data.
 
+### 6.12 Idea library: "Save it now, go someday"
+
+**Why:** a trip happens once or twice a year, so a trip-only app is opened once or twice a year (§11). The idea library gives travel lovers a reason to come back every week: drop in anything they dream about, and the app sorts it and turns it into value with no extra work. It's the ReciMe model for travel, and the main route to a subscription (D61). Every trip can then start from a library that's already full.
+
+**How it stays out of the way (P9):** there's no setup and nothing to configure. People who only join trips through invites never see it. Saves are private unless the user shares a board.
+
+**Capture and sorting**
+- **FR-L1** **Save with no trip.** The same capture as FR-20 (paste a link, upload a screenshot, type an idea) works with no trip. The result is a saved idea in the person's library.
+- **FR-L2** **Text to save.** A link or screenshot texted to the app's number lands in the library when the person has no active trip (FR-83). The confirmation reply is a plain receipt ("Saved: Time Out Market, Lisbon"), never marketing (FR-84 rules apply).
+- **FR-L3** **Auto-sort.** The same extraction pipeline as §6.3 (including the C-20/C-21 protections) files each save by **country → city or region → category** (food, drinks, stays, activities, sights, nightlife, other). Low-confidence results are flagged "Is this right?" (same as FR-23). Non-place content follows FR-25.
+- **FR-L4** **Listicles** ("10 best bars in CDMX") follow FR-24: save all, or pick which.
+- **FR-L5** **Duplicates** merge into one saved idea, keeping every source link (FR-22).
+
+**Browsing**
+- **FR-L6** **Home = places, not a feed.** The library opens on a grid of countries and cities, each showing a count and cover photo ("Lisbon · 14"). Tapping one shows its saves grouped by category, with a map toggle.
+- **FR-L7** **Map** of all saves, clustered by city when zoomed out.
+- **FR-L8** **Custom boards** are optional. Any save can be added to one or more boards; auto boards always exist.
+- **FR-L9** **Someday priority:** the solo Must-do / Maybe / Skip buttons (D55) can be used on saves to rank a city's ideas. Optional.
+
+**Turning saves into trips**
+- **FR-L10** **"Trip-ready" nudge.** When a city or region reaches a threshold of saves (default **8+ places, including at least 1 food and 1 activity [OPEN]**), its tile shows "Lisbon is trip-ready: start a trip?" **In the app only in the POC;** never by SMS.
+- **FR-L11** **Start a trip from a board.** One tap creates a trip (FR-1) with that city as its Stop and the chosen saves copied in as ideas (§5). Must-do saves are preselected. The trip is then a normal solo, duo or group trip.
+- **FR-L12** **Send to an existing trip.** Any save, or a multi-selection, can be sent to a trip the person belongs to. AI picks the Stop (FR-S6). If the trip has no matching Stop, FR-S6's "New city?" prompt applies.
+- **FR-L13** **Trip ideas back to the library.** After a trip, or at any time, a member can save any trip idea to their own library ("Save for next time"). Only the place is copied, never votes or comments.
+
+**Shared boards**
+- **FR-L14** A board can be shared through a personal link (same rules as FR-5: view and add with no code; managing the board needs a code). Members of a shared board see only that board's saves, never the rest of the owner's library.
+- **FR-L15** Shared boards have no voting, splitting or reveal. Turning a shared board into a trip (FR-L11) invites its members to the trip as normal invitees (FR-4).
+
+**Passive value: alerts** *(Phase 2; push and email only, never SMS; all opt-in per board)*
+- **FR-L16** **Best time to go:** each city tile shows its best months and current season ("Peak season · hot"). A gentle alert comes when a saved city enters its best window.
+- **FR-L17** **Price alerts:** flight-price drops from the user's home airport to a saved city, and price drops on saved stays where the provider allows it. **Needs a fare data source:** FlightAware AeroAPI (§7a) covers flight status only and has no fares, so the provider is **[OPEN]** (§14). Plain links only until affiliate links ship (§11 trust rules: a paid placement never changes what's shown in the library).
+- **FR-L18** **Place updates:** saved places that close permanently (FR-33) are flagged in the POC; Phase 2 adds alerts for new hours or reopening.
+- **FR-L19** **Alert throttling:** at most **1 library alert per person per week [OPEN]**, batched into a single digest.
+
+**Free and Premium (D61, D62)**
+- **FR-L20** **Free tier:** up to **3 AI imports per person per day** (a starting number, to be tuned with POC data). Imports beyond that are queued as "Saved — we'll sort it tomorrow" instead of failing, so nothing is lost.
+- **FR-L21** **Premium:** a higher import limit (fair-use cap against abuse). Other Premium perks and the price are **[OPEN]**.
+- **FR-L21a** **7-day free trial** that **converts to paid automatically** unless cancelled:
+  - **One trial per person**, tied to the verified phone or email and the payment method, so it can't be repeated by making new accounts.
+  - **Clear terms at sign-up**, next to the button: trial length, the price after it, the billing date, and how to cancel. The person actively agrees (no pre-ticked box).
+  - **Reminder before it converts:** a push or email about 2 days before the trial ends, with the date, the price and a one-tap cancel link. **Never by SMS** (no marketing in texts, FR-84).
+  - **Easy cancel:** cancel online in the same place they signed up, in 2 taps or fewer, with no call or chat required. Cancelling during the trial keeps Premium until the trial ends and never charges.
+  - After converting: a receipt email, and a renewal reminder before each yearly renewal.
+  - **Legal review before launch** of US state auto-renewal laws (e.g. California's) and app-store subscription rules for the native app.
+- **FR-L22** **What counts as an import:** a new AI extraction the person starts. Cache hits (an already-resolved URL, FR-34), failed extractions, typed plain-text ideas and sending existing saves to a trip don't count.
+- **FR-L23** **The cap never blocks group participation.** Guests never pay (§11): importing into a trip that has other active members never hits the paywall. **Imports into a solo trip do count toward the cap** (D62), so a solo trip isn't a way around it. If a solo trip later gains a member, imports from then on are exempt; earlier ones aren't refunded.
+- **FR-L24** **POC: no paywall.** The POC logs imports per person per day and shows no limit or upgrade screen (D52: no revenue fake doors in the POC). The existing abuse rate limits (FR-34) still apply.
+
+**Privacy**
+- **FR-L25** A person's library is private, enforced by Row Level Security. Trip members never see a member's library, and saves never show up in trip counts, digests or share cards unless they're sent to that trip.
+- **FR-L26** Shared-board members can see each other's names but never phone numbers (same as trips).
+
 ## 7. Phasing
 
 | Phase | Scope |
 |---|---|
-| **1. Web POC** | Both ways to start; personal links, join with code and approval, roles. Stages and Stops with attendance per Stop. Capture by link, screenshot, text or texting the app's number, with AI extraction and filing under Stops. Blind voting, polls, custom polls. Receipts (even or itemized), categories, balances per currency. Bachelor/bachelorette mode. **"Arrange my days" plan optimizer (basic; weather is a stretch).** One-way texts plus replies to vote and approve. **No offline support. No flight tracking.** |
-| **2. Native app** | Share sheet. Push notifications. Offline (cached plan plus queued receipt uploads). Settle-up buttons for Venmo and others; free "Collect for the house" tracking. Flight tracking with live alerts. Personal profile and stats. Trip Wrapped. Templates. **Revenue:** affiliate links on decided Stays and activities, bachelor/bachelorette merch, Decide→Book→Arrive cards, creator revenue share |
+| **1. Web POC** | Both ways to start; personal links, join with code and approval, roles. Stages and Stops with attendance per Stop. Capture by link, screenshot, text or texting the app's number, with AI extraction and filing under Stops. Blind voting, polls, custom polls. Receipts (even or itemized), categories, balances per currency. Bachelor/bachelorette mode. **"Arrange my days" plan optimizer (basic; weather is a stretch).** **Idea library, minimal (§6.12):** save with no trip, text to save, auto-sort, city grid and map, custom and shared boards, in-app "trip-ready" nudge, start a trip from a board, closed-place flags. Imports are logged, not capped (FR-L24). One-way texts plus replies to vote and approve. **No offline support. No flight tracking.** |
+| **2. Native app** | Share sheet. Push notifications. Offline (cached plan plus queued receipt uploads). Settle-up buttons for Venmo and others; free "Collect for the house" tracking. Flight tracking with live alerts. Personal profile and stats. Trip Wrapped. Templates. Share sheet into the idea library. Library alerts (best time to go, price drops, place updates). **Revenue:** **Premium subscription for the idea library** (free tier: 3 AI imports a day, D61), affiliate links on decided Stays and activities, bachelor/bachelorette merch, Decide→Book→Arrive cards, creator revenue share |
 | **3. Expansion** | iMessage extension. Side plans. Brand rebates, venue perks and tourism-board deals once there's volume. Badges and annual Travel Wrapped. More SMS countries |
 | **Future / unscheduled** | Group trip card (interchange), only if 25%+ of trips pool $1,500+. Payments in the app. B2B (planner tier, offsites, white-label). All need legal review or a decision after the POC |
 
@@ -578,7 +652,7 @@ Goal: one TypeScript codebase, managed services, minimal ops. Optimize for shipp
 - Booking inside the app
 - Payment processing
 - Fully automatic itineraries that rearrange themselves without review (the optimizer only suggests; §6.11)
-- A public discovery feed
+- A public discovery feed (the idea library is private; boards are shared only by link)
 - Offline in the web POC
 
 ## 11. Business Model
@@ -587,7 +661,8 @@ Analysis:
 - [`research/revenue-model.md`](research/revenue-model.md): our costs
 - [`research/monetization-benchmarks.md`](research/monetization-benchmarks.md): how comparable apps make money, plus a bottom-up revenue model
 
-- **The problem:** people use the app once or twice a year, so subscriptions won't work. Revenue must come from **money already flowing through the trip**, and guests never pay.
+- **The problem:** people take a trip once or twice a year, so a trip-only app can't support a subscription. Revenue must come from **money already flowing through the trip**, and guests never pay.
+- **The fix: the idea library (§6.12, D60–D61).** Travel lovers save ideas every week whether or not a trip is planned, which is how ReciMe built a subscription business around an occasional task (cooking a saved recipe). That supports a **freemium subscription for the person who saves**: free up to 3 AI imports a day, Premium for more. Trip guests, voting, splitting and texting stay free forever.
 - **Our cost per trip** (8 people, 5 without the app): **about $2.50–3.50** with group-chat sharing (D49) and other optimizations.
 - **Revised revenue per trip (bottom-up, estimates):**
 
@@ -611,6 +686,7 @@ Analysis:
 
   | Stream | When | Est. $ per trip (cons. / base / opt.) | Notes |
   |---|---|---|---|
+  | **Idea library Premium** (subscription; free tier 3 AI imports a day) | Phase 2 (POC measures save frequency first) | Per subscriber, not per trip; price **[OPEN]** (benchmarks: ReciMe $59.99/yr, Wanderlog $39.99/yr) | Only the saver pays; never guests. Premium never changes votes, rankings or shortlists |
   | Hotel and rental links on the decided Stay | Phase 2 | Part of $2–4 / $9–15 / $35–50 | Airbnb pays nothing; Booking.com about 3.75%; Vrbo 2% |
   | Activity links (Viator, GetYourGuide 8%) | Phase 2 | (included above) | Most bachelor/bachelorette activities aren't listed there |
   | **Merch** (matching shirts and hats from the theme poll, through Printful) | Phase 2, bachelor/bachelorette trips | $2 / $11 / $47 per bach trip | About $8–12 margin per item. Hard ordering cutoff 21 days before the trip; block trademarked logos and names |
@@ -656,10 +732,11 @@ Analysis:
   - From these, derive: gross booking intent per trip, revenue *opportunity* per trip, actual revenue per trip, variable cost per trip, and contribution margin per trip.
   - Store the **creator handle** on every TikTok idea, and track idea → decided → receipt per creator.
   - Measure the share of receipts that name a brand on a line item, to see if brand rebates are feasible.
+  - **Idea library:** imports per person per day and week, the share of people who'd hit a 3-a-day cap, weekly return rate of savers with no active trip, and how many trips start from a library board.
   - **Goal:** after 100–200 real trips, know whether the business is mainly affiliate, vendor marketplace, or card/payments, instead of guessing from industry rates.
   - **Target to aim for later:** more than $10 revenue per activated trip against about $3 variable cost.
 - **Decision rule:** if fewer than 30% of decided Stays could be booked through a commission-paying site, plan around **$3–12 per trip from links** and prioritize revenue streams that don't depend on booking links.
-- **Never charge** for guest participation, voting, splitting or being in a trip.
+- **Never charge** for guest participation, voting, splitting or being in a trip. The only thing ever paywalled for consumers is the idea library's import limit and Premium extras (D61).
 - **NFR:** an internal dashboard of cost vs. revenue per trip from day one.
 
 ## 12. Success Metrics (POC)
@@ -676,6 +753,9 @@ Analysis:
 | Gross booking intent per trip (estimated $ of decided purchases) | Track; segment by category |
 | Share of decided Stays bookable through a commission-paying site (vs. Airbnb or direct) | Track; decision gate at 30% |
 | Groups who start a second trip | Track |
+| Savers who come back weekly with no active trip (idea library) | Track; the subscription case depends on it |
+| AI imports per saver per day (share of days above 3) | Track; tunes the free cap (FR-L20) |
+| Trips started from a library board | Track |
 | All metrics | **Segmented by trip size** (solo / duo / group) |
 
 ## 13. Decision Log
@@ -725,7 +805,7 @@ Analysis:
 | D41 | Idea ranking | Approval % (Must-do + Down), ties broken by Must-do count; cards show both |
 | D42 | Contested ideas | "Split opinions" label shown to everyone, no names |
 | D43 | Idea digest | Daily, only if there are new ideas; push or email for app users, text for no-app members |
-| D45 | Revenue direction | No subscription. Booking commissions, travel add-on referrals, vendor leads for bachelor/bachelorette trips, and clearly labeled sponsored picks; payments later. No one-time Bach Pack |
+| D45 | Revenue direction | No subscription *for trips* (amended by D61: the idea library has a saver subscription). Booking commissions, travel add-on referrals, vendor leads for bachelor/bachelorette trips, and clearly labeled sponsored picks; payments later. No one-time Bach Pack |
 | D47 | Booking in the POC | Plain booking links with click tracking, no affiliate links, to measure intent |
 | D51 | Revenue measurement | The POC has no monetization; it measures commercial intent and actual spend per trip to decide the revenue model |
 | D52 | Revenue roadmap | Phase 2: links plus merch plus Decide→Book→Arrive cards (target $15–25 per trip). Group card stays on the roadmap but not in the POC. B2B not now. No revenue fake doors in the POC |
@@ -735,6 +815,9 @@ Analysis:
 | D56 | Duo voting | Open from the start |
 | D57 | Duo decisions | The owner decides (same as groups) |
 | D58 | Duo budgets | Shared openly, with a heads-up |
+| D60 | Idea library | In the POC (minimal): a personal library for saving travel ideas with no trip. AI auto-sorts by country, city and category; map; custom and shared boards; "trip-ready" nudge; one tap to start a trip. Alerts (best time to go, prices, place updates) in Phase 2, push and email only (§6.12) |
+| D61 | Library monetization | Freemium, ReciMe-style: free up to 3 AI imports per person per day (to be tuned), Premium for more. **7-day free trial that converts to paid unless cancelled**, with a reminder before conversion and easy cancel (FR-L21a). Only the saver pays; never trip guests. Paywall ships after the POC; the POC only measures (FR-L20–L24) |
+| D62 | Solo-trip imports | Count toward the free import cap; only trips with 2+ active members are exempt (FR-L23) |
 | D59 | Plan optimization | In the POC: "Arrange my days" suggests a day-by-day order; the user previews, tweaks and locks. Considers geography, hours and fixed times, meals and pace, priority and attendance (weather is a stretch) |
 | D50 | Collection fees | No fee for collecting money. "Collect for the house" is free, tracked through Venmo/Zelle links |
 | D49 | Message channels | Push for app users. Group-chat share cards (free) for group news. SMS only for codes, invites, money and personal nudges. Email as a backup. No web push |
@@ -747,3 +830,9 @@ Analysis:
 1. Name and brand. (TBD)
 2. Try Places.is and Batch hands-on before the build (not done yet).
 3. Legal review: transcribing audio from TikTok/IG, carrier filtering of user content, flight data licensing. (TBD)
+4. **Idea library (§6.12):**
+   - Premium price and any perks beyond more imports (FR-L21).
+   - What counts as an "active trip" when routing texted-in links to a trip or the library (FR-83). Suggested default: a trip with activity in the last 14 days or dates in the next 60.
+   - The "trip-ready" threshold (FR-L10) and the library alert frequency (FR-L19).
+   - Data sources for flight-price and stay-price alerts (FR-L17). FlightAware AeroAPI has no fares, so this needs a separate fare API (candidates to evaluate: Duffel, Kiwi Tequila, a Skyscanner or Travelpayouts affiliate feed); the choice affects §7a and cost.
+   - Billing provider for Premium on the web (e.g. Stripe Billing) and in the native app (app-store subscriptions), and the exact reminder timing for the trial.
