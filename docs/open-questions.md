@@ -49,3 +49,13 @@ move the answer into REQUIREMENTS.md §13 and update the code.
 | Q29 | "Packed day" hint threshold (FR-O6 example is exactly the balanced cap) | Fires above the pace cap |
 | Q30 | Side plans proactive? | Only when main plan has no room |
 | Q31 | Check-in/out modelling; weather (FR-O11 stretch) | Not modelled |
+
+## AI intake (packages/ai)
+
+| # | Question | Provisional default |
+|---|---|---|
+| Q32 | research/edge-cases.md labels prompt injection C-20 and SSRF C-21 (reverse of CLAUDE.md §6.3) | Followed CLAUDE.md; edge-case file needs fixing |
+| Q33 | On a Claude refusal, use server-side model fallback? (switches models) | No; fall back to heuristic |
+| Q34 | Google terms: lat/lng only cacheable ~30 days | Coordinates kept in the short-lived display cache; refresh needed |
+| Q35 | Listicle Places lookups (up to 15) cost cap | 15 max, 4 concurrent |
+| Q36 | Extraction effort `medium` vs NFR-1 15 s | Needs live eval run with a key |
