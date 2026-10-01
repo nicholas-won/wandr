@@ -1,0 +1,58 @@
+[
+  {
+    "id": "us-restaurant-tax-tip",
+    "note": "SYNTHETIC. US restaurant: tax added, tip written, card line duplicates total",
+    "text": "TACO JOINT\n123 Main St, Austin TX\n2026-03-14 19:42\n2 x Margarita        24.00\nChips & Guac          9.50\nAl Pastor Tacos      14.00\nSubtotal             47.50\nTax 8.25%             3.92\nTip                   9.00\nTOTAL                60.42\nVISA ****1234        60.42",
+    "hints": { "currency": "USD" },
+    "expect": { "currency": "USD", "totalMinor": 6042, "itemCount": 3, "taxMinor": 392, "tipMinor": 900, "ok": true, "category": "food_drink" }
+  },
+  {
+    "id": "auto-gratuity-plus-tip",
+    "note": "SYNTHETIC. Large party auto-gratuity + extra tip → double tipping (E-4)",
+    "text": "THE STEAKHOUSE\nParty of 8\nRibeye x4           260.00\nWine bottle          90.00\nSubtotal            350.00\nTax                  28.88\nGratuity 18%         63.00\nTip                  50.00\nTotal               491.88",
+    "hints": { "currency": "USD" },
+    "expect": { "currency": "USD", "totalMinor": 49188, "serviceChargeMinor": 6300, "tipMinor": 5000, "issues": ["auto_gratuity_and_tip"], "category": "food_drink" }
+  },
+  {
+    "id": "eur-vat-included-decimal-comma",
+    "note": "SYNTHETIC. Portuguese receipt: decimal commas, IVA included (E-4, E-8)",
+    "text": "Taberna da Rua das Flores\nLisboa\n14/03/2026\nBacalhau à Brás        14,50 €\nPolvo                  22,00 €\nVinho Verde            18,00 €\nTOTAL                  54,50 €\nIVA incluído 23%       10,19 €",
+    "hints": { "currency": "EUR" },
+    "expect": { "currency": "EUR", "totalMinor": 5450, "itemCount": 3, "taxIncluded": true, "ok": true, "date": "2026-03-14" }
+  },
+  {
+    "id": "jpy-zero-decimal",
+    "note": "SYNTHETIC. JPY has no minor unit (E-8); Japanese labels (E-9)",
+    "text": "一蘭 渋谷店\n2026-04-02\n天然とんこつラーメン   ¥980\n替玉                   ¥210\n半熟塩ゆで玉子         ¥140\n合計                   ¥1,330",
+    "hints": { "currency": "JPY" },
+    "expect": { "currency": "JPY", "totalMinor": 1330, "itemCount": 3, "ok": true }
+  },
+  {
+    "id": "items-dont-add-up",
+    "note": "SYNTHETIC. OCR missed a line → unassigned difference (E-6)",
+    "text": "CAFE LUNA\nLatte                 5.25\nCroissant             4.00\nTOTAL                12.40",
+    "hints": { "currency": "USD" },
+    "expect": { "currency": "USD", "totalMinor": 1240, "unassignedDifferenceMinor": 315, "issues": ["items_do_not_add_up"] }
+  },
+  {
+    "id": "cash-change-trap",
+    "note": "SYNTHETIC. Cash tendered / change must not be read as total (E-7)",
+    "text": "Corner Deli\nSandwich             11.00\nSoda                  2.50\nTOTAL                13.50\nCASH                 20.00\nCHANGE                6.50",
+    "hints": { "currency": "USD" },
+    "expect": { "currency": "USD", "totalMinor": 1350, "itemCount": 2, "ok": true }
+  },
+  {
+    "id": "hotel-city-tax",
+    "note": "SYNTHETIC. Lodging folio with city tax",
+    "text": "Hotel Lisboa Plaza\nRoom 2 nights        320.00\nCity tax               8.00\nTOTAL                328.00",
+    "hints": { "currency": "EUR" },
+    "expect": { "currency": "EUR", "totalMinor": 32800, "taxMinor": 800, "ok": true, "category": "lodging" }
+  },
+  {
+    "id": "dollar-in-mexico",
+    "note": "SYNTHETIC. '$' on a Mexico City receipt → MXN, ask to confirm (E-8)",
+    "text": "La Docena\nCDMX\nOstiones             $320.00\nTostada de atún      $185.00\nTOTAL                $505.00",
+    "hints": { "currency": "MXN" },
+    "expect": { "currency": "MXN", "totalMinor": 50500, "issues": ["currency_ambiguous"] }
+  }
+]
