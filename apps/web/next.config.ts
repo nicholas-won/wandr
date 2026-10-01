@@ -5,13 +5,6 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@wandr/core", "@wandr/db", "@wandr/ai"],
   // Native/wasm DB drivers stay out of the server bundle.
   serverExternalPackages: ["@electric-sql/pglite", "postgres"],
-  turbopack: {
-    resolveAlias: {
-      // packages/db/src/pglite.ts imports "./migrate-files", which uses a `new URL(dir,
-      // import.meta.url)` Turbopack can't bundle. See src/lib/db/migrate-files-shim.ts.
-      "./migrate-files": "./src/lib/db/migrate-files-shim.ts",
-    },
-  },
   async headers() {
     return [
       {

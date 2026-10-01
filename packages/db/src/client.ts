@@ -22,9 +22,14 @@ export function getDb(): Promise<Db> {
     }
     const { createPglite } = await import("./pglite");
     const dir = process.env.PGLITE_DIR ?? `${process.cwd()}/.data/pglite`;
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(dir, { recursive: true });
     const { db } = await createPglite(dir);
     return db as unknown as Db;
-  })();
+  })().catch((err) => {
+    cached = undefined; // retry on the next call instead of caching the failure
+    throw err;
+  });
   return cached;
 }
 

@@ -8,7 +8,7 @@
  */
 import postgres from "postgres";
 import { pathToFileURL } from "node:url";
-import { applyMigrations, MIGRATIONS_DIR, type MigrationDriver } from "./migrate-files";
+import { applyMigrations, findMigrationsDir, type MigrationDriver } from "./migrate-files";
 
 const LOCK_KEY = 0x77616e64; // "wand"
 
@@ -27,7 +27,7 @@ export function postgresDriver(sql: postgres.Sql): MigrationDriver {
   };
 }
 
-export async function migrate(url: string, dir = MIGRATIONS_DIR): Promise<string[]> {
+export async function migrate(url: string, dir = findMigrationsDir()): Promise<string[]> {
   const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
   try {
     await sql`select pg_advisory_lock(${LOCK_KEY})`;

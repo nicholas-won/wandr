@@ -1,11 +1,36 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const MIGRATIONS_DIR = fileURLToPath(new URL("../migrations", import.meta.url));
+/**
+ * Locate packages/db/migrations at runtime. Bundler-safe: no `new URL(dir, import.meta.url)`
+ * literal (Turbopack treats that as an asset reference), so Next.js can bundle this file.
+ * Order: WANDR_MIGRATIONS_DIR → next to this source file → walk up from cwd.
+ */
+export function findMigrationsDir(): string {
+  const fromEnv = process.env.WANDR_MIGRATIONS_DIR;
+  if (fromEnv) return fromEnv;
+  const candidates: string[] = [];
+  try {
+    const here = fileURLToPath(import.meta.url);
+    candidates.push(join(dirname(here), "..", "migrations"));
+  } catch {
+    // bundled: import.meta.url may not be a file URL
+  }
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i++) {
+    candidates.push(join(dir, "packages", "db", "migrations"), join(dir, "migrations"));
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  const found = candidates.find((c) => existsSync(join(c, "0000_init.sql")));
+  if (!found) throw new Error("Could not find packages/db/migrations; set WANDR_MIGRATIONS_DIR");
+  return found;
+}
 
 /** All migration statements, in file order. Works for drizzle-kit output and hand-written SQL. */
-export function migrationStatements(dir = MIGRATIONS_DIR): { file: string; sql: string }[] {
+export function migrationStatements(dir = findMigrationsDir()): { file: string; sql: string }[] {
   return readdirSync(dir)
     .filter((f) => f.endsWith(".sql"))
     .sort()
@@ -33,7 +58,7 @@ export interface MigrationDriver {
  * Apply every not-yet-applied file in `dir`, in order, each in its own transaction, recording it
  * in `_wandr_migrations`. Returns the files applied.
  */
-export async function applyMigrations(driver: MigrationDriver, dir = MIGRATIONS_DIR): Promise<string[]> {
+export async function applyMigrations(driver: MigrationDriver, dir = findMigrationsDir()): Promise<string[]> {
   await driver.exec(`create table if not exists _wandr_migrations (file text primary key, applied_at timestamptz not null default now())`);
   const done = new Set(await driver.appliedFiles());
   const applied: string[] = [];
