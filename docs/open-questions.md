@@ -23,3 +23,17 @@ move the answer into REQUIREMENTS.md §13 and update the code.
 | Q13 | Can organizers set another member's attendance? | No: only the member or their manager |
 | Q14 | Owner succession uses trip join date (we don't record promotion date) | Join date; managed members skipped |
 | Q15 | Poll turnout exactly 50% | Counts as enough |
+
+## Money (packages/core/src/money)
+
+| # | Question | Provisional default |
+|---|---|---|
+| Q16 | Unclaimed itemized items after the claim window (DN-17) | Block until the uploader assigns or absorbs (FR-62) |
+| Q17 | Receipt doesn't add up (E-6) | Block; gap can be assigned to one person or split evenly |
+| Q18 | Leftover pennies: lowest member id vs rotate per expense (E-21) | Lowest member id (rotation available) |
+| Q19 | Guest of honor's items on itemized receipts | Spread over everyone else in proportion to subtotal |
+| Q20 | Refund larger than original | Rejected |
+| Q21 | Adjustments change net balance only (not per-person spend) | Net balance only |
+| Q22 | Late joiners on itemized expenses (FR-12) | Even splits only |
+| Q23 | Not built: multiple payers (E-17), "covered by" (E-15), personal tracking-only (E-14) | Out of scope until specced |
+| Q24 | Duplicate receipt window | ±24 h |
