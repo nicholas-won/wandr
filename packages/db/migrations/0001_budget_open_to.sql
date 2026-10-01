@@ -1,0 +1,1 @@
+ALTER TABLE "budget_answers" ADD COLUMN "open_to" uuid[] DEFAULT '{}'::uuid[] NOT NULL;

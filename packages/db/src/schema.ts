@@ -472,6 +472,12 @@ export const budgetAnswers = pgTable("budget_answers", {
   currency: text("currency").notNull(),
   minMinor: money("min_minor").notNull(),
   maxMinor: money("max_minor").notNull(),
+  /**
+   * Members who may see this answer individually: the duo pair when answered in a duo (FR-T9),
+   * else empty. Set by trigger, so answers given in a group stay private if the trip shrinks
+   * (FR-T5) and a duo keeps seeing each other's answers after it grows (FR-T4).
+   */
+  openTo: uuid("open_to").array().notNull().default(sql`'{}'::uuid[]`),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
