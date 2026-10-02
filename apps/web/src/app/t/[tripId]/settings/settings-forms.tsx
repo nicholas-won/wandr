@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { Copy, Link2, RefreshCw } from "lucide-react";
 import { APP_NAME } from "@wandr/core/config";
+import { deleteConfirmationMatches } from "@wandr/core/trip-deletion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
-import { regenerateGroupLinkAction, transferOwnershipAction, updateJoinSettingsAction } from "./actions";
+import { deleteTripAction, regenerateGroupLinkAction, transferOwnershipAction, updateJoinSettingsAction } from "./actions";
 
 type Result = { ok: true; message?: string } | { ok: false; error: string; signin?: string };
 
@@ -60,7 +61,8 @@ export function GroupLinkCard({
       <CardContent className="space-y-3">
         {paused ? (
           <p role="status" className="rounded-lg bg-accent px-3 py-2 text-sm text-accent-foreground">
-            Paused after 20 people asked to join. Make a new link to turn it back on.
+            Paused: 20 people are waiting to join. It turns back on by itself once you approve or deny some of
+            them on the People page.
           </p>
         ) : null}
         {url ? (
@@ -152,6 +154,93 @@ export function JoinSettingsForm({
         Save
       </Button>
     </form>
+  );
+}
+
+/**
+ * JR3: the owner deletes the whole trip. Shows what's lost, then asks them to type the trip name.
+ * Soft delete: hidden from everyone; money history is kept (NFR-5/NFR-7).
+ */
+export function DeleteTrip({
+  tripId,
+  confirmWord,
+  lines,
+}: {
+  tripId: string;
+  /** What to type (the trip name, or "delete"). */
+  confirmWord: string;
+  /** "What's lost" preview lines. */
+  lines: string[];
+}) {
+  const [pending, start] = useTransition();
+  const [open, setOpen] = React.useState(false);
+  const [typed, setTyped] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const router = useRouter();
+  const matches = deleteConfirmationMatches(typed, confirmWord);
+  return (
+    <div className="space-y-2">
+      <Button variant="ghost" className="text-destructive" onClick={() => setOpen(true)}>
+        Delete trip
+      </Button>
+      <Dialog
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) {
+            setTyped("");
+            setError(null);
+          }
+        }}
+        title="Delete this trip for everyone?"
+        description="Nobody will be able to open it again, including you. This can't be undone in the app."
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            start(async () => {
+              const r = await deleteTripAction(tripId, typed);
+              if (!r.ok) {
+                if (r.signin) router.push(r.signin);
+                else setError(r.error);
+              }
+            });
+          }}
+        >
+          {lines.length ? (
+            <div className="text-sm">
+              <p className="font-semibold">What&apos;s lost</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
+                {lines.map((l) => (
+                  <li key={l}>{l}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <div className="space-y-1">
+            <Label htmlFor="delete-confirm">
+              Type <span className="font-semibold">{confirmWord}</span> to confirm
+            </Label>
+            <Input
+              id="delete-confirm"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              autoComplete="off"
+              aria-invalid={!!error}
+            />
+            {error ? (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            ) : null}
+          </div>
+          <Button type="submit" variant="destructive" block disabled={!matches} loading={pending}>
+            Delete trip
+          </Button>
+        </form>
+      </Dialog>
+    </div>
   );
 }
 

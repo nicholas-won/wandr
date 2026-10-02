@@ -1,11 +1,21 @@
-/** Trip settings: group link, who can join, ownership (FR-2, FR-3, FR-6, FR-7, FR-10, J-7). Organizers only. */
+/**
+ * Trip settings: group link, who can join, ownership and deleting the trip (FR-2, FR-3, FR-6, FR-7,
+ * FR-10, J-7, JR3). Organizers only; ownership and delete are owner only.
+ */
 import { notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireFullOrRedirect } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { loadTripView, tripContext } from "@/server/context";
-import { defaultSuccessor, getGroupLink, MembershipError, ownershipCandidates } from "@/server/membership";
-import { GroupLinkCard, JoinSettingsForm, TransferOwnership } from "./settings-forms";
+import { deleteConfirmationWord, deletionPreviewLines } from "@wandr/core";
+import {
+  defaultSuccessor,
+  getGroupLink,
+  MembershipError,
+  ownershipCandidates,
+  tripDeletionPreview,
+} from "@/server/membership";
+import { DeleteTrip, GroupLinkCard, JoinSettingsForm, TransferOwnership } from "./settings-forms";
 import { BachModeCard } from "@/components/trip/bach-mode-card";
 
 export default async function SettingsPage({ params }: PageProps<"/t/[tripId]/settings">) {
@@ -19,9 +29,13 @@ export default async function SettingsPage({ params }: PageProps<"/t/[tripId]/se
     throw e;
   });
   const isOwner = view.me.role === "owner";
-  const [candidates, successor] = isOwner
-    ? await Promise.all([ownershipCandidates(db, user.userId, tripId), defaultSuccessor(db, user.userId, tripId)])
-    : [[], null];
+  const [candidates, successor, deletion] = isOwner
+    ? await Promise.all([
+        ownershipCandidates(db, user.userId, tripId),
+        defaultSuccessor(db, user.userId, tripId),
+        tripDeletionPreview(db, user.userId, tripId),
+      ])
+    : [[], null, null];
 
   return (
     <main className="grid gap-4 lg:grid-cols-2 lg:items-start">
@@ -46,7 +60,7 @@ export default async function SettingsPage({ params }: PageProps<"/t/[tripId]/se
       ) : null}
 
       {isOwner ? (
-        <Card>
+        <Card id="ownership">
           <CardHeader>
             <CardTitle>Ownership</CardTitle>
             <p className="text-sm text-muted-foreground">
@@ -54,12 +68,19 @@ export default async function SettingsPage({ params }: PageProps<"/t/[tripId]/se
                 ? `If you ever delete your account, ${successor.name} becomes the owner unless you pick someone.`
                 : "Once someone else has joined and confirmed their number, you can hand the trip to them."}
             </p>
+            {/* JR3: to leave, the owner transfers first or deletes the trip. */}
+            <p className="text-sm text-muted-foreground">To leave the trip, hand it to someone else first, or delete it.</p>
           </CardHeader>
-          {candidates.length > 0 ? (
-            <CardContent>
-              <TransferOwnership tripId={tripId} candidates={candidates} />
-            </CardContent>
-          ) : null}
+          <CardContent className="space-y-4">
+            {candidates.length > 0 ? <TransferOwnership tripId={tripId} candidates={candidates} /> : null}
+            {deletion ? (
+              <DeleteTrip
+                tripId={tripId}
+                confirmWord={deleteConfirmationWord(deletion.tripName)}
+                lines={deletionPreviewLines(deletion)}
+              />
+            ) : null}
+          </CardContent>
         </Card>
       ) : null}
     </main>
