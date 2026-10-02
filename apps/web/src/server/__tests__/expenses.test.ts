@@ -30,6 +30,7 @@ import {
   membershipReviews,
   recordPayment,
   recordRefund,
+  resplitForGuestsOfHonor,
   restoreExpense,
   saveBudgetAnswer,
   setAbsorbed,
@@ -39,6 +40,7 @@ import {
   updateExpense,
 } from "../expenses";
 import { createReceiptUpload, getReceiptUpload, openReceiptImage, readReceiptJob } from "../receipts";
+import { setGuestOfHonor as setGuestOfHonorFlag } from "../surprise";
 
 type Person = { userId: string; memberId: string; claims: { sub: string } };
 
@@ -284,6 +286,11 @@ describe("group", () => {
     await setGuestOfHonorInSplits(s.d, Olivia!.claims, { tripId: s.tripId, memberId: Dee!.memberId, on: false });
     det = (await getExpenseDetail(s.d, Olivia!.claims, s.tripId, id))!;
     expect(det.shares).toHaveLength(4);
+    // The bach-mode flag flip (surprise.ts) followed by a re-split gives the same result.
+    await setGuestOfHonorFlag(s.d, Olivia!.claims, { tripId: s.tripId, memberId: Dee!.memberId, on: true });
+    expect(await resplitForGuestsOfHonor(s.d, Olivia!.claims, s.tripId)).toEqual({ resplit: 1, settledUnchanged: 0 });
+    det = (await getExpenseDetail(s.d, Olivia!.claims, s.tripId, id))!;
+    expect(det.shares).toHaveLength(3);
   });
 
   it("refunds reuse the original split and can't exceed it (FR-72, E-12)", async () => {

@@ -347,6 +347,8 @@ describe("migration bookkeeping", () => {
       "0001_rls.sql",
       "0002_idea_library.sql",
       "0003_library_rls.sql",
+      "0004_expenses.sql",
+      "0004_expenses_rls.sql",
     ]);
   });
 });

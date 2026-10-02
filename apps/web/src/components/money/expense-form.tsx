@@ -7,7 +7,7 @@
  * and auto-gratuity plus a tip (FR-61, E-4/6/7).
  */
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { money } from "@wandr/core";
 import type { Receipt, ReceiptValidation } from "@wandr/ai";
@@ -103,7 +103,7 @@ export function ExpenseForm({
   const [error, setError] = useState<string | null>(null);
 
   const totalMinor = parse(total, currency);
-  const charges = useMemo(() => {
+  const charges = (() => {
     const out: money.ReceiptCharge[] = [];
     const add = (kind: money.ChargeKind, v: string, extra: Partial<money.ReceiptCharge> = {}) => {
       const n = parse(v, currency);
@@ -115,10 +115,10 @@ export function ExpenseForm({
     add("fee", fees);
     add("discount", discount);
     return out;
-  }, [tax, taxIncluded, tip, service, fees, discount, currency, r?.serviceChargeLabel]);
+  })();
 
   const itemMinor = items.map((i) => parse(i.amount, currency));
-  const check = useMemo(() => {
+  const check = (() => {
     if (method !== "itemized" || totalMinor === null || itemMinor.some((x) => x === null)) return null;
     try {
       return money.validateReceipt({
@@ -130,7 +130,7 @@ export function ExpenseForm({
     } catch {
       return null;
     }
-  }, [method, totalMinor, currency, items, itemMinor, charges]);
+  })();
 
   const fmt = (n: number) => {
     try {
