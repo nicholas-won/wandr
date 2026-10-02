@@ -16,6 +16,12 @@ export interface TripSection {
 export const TRIP_SECTIONS: TripSection[] = [
   { segment: "", label: "Ideas" },
   { segment: "plan", label: "Plan" },
+  // P2/FR-S3: Stops appear when a second city shows up (reachable earlier from the stage chips).
+  { segment: "stops", label: "Stops", show: (v) => v.stops.length >= 2 },
+  // §6.10: polls are hidden in solo trips (FR-47/48, FR-S12).
+  { segment: "polls", label: "Polls", show: (v) => v.trip.size !== "solo" },
+  // FR-122: once there's a place to show.
+  { segment: "map", label: "Map", show: (v) => v.ideas.some((c) => !c.processing && !c.notAPlace) },
   { segment: "people", label: "People", soloLabel: "Invite" },
   // FR-6/7/10, FR-2: organizers only (P2: hidden until needed).
   { segment: "settings", label: "Settings", show: (v) => v.me.role !== "member" },

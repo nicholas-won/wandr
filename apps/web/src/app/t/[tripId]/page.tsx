@@ -9,10 +9,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { routes } from "@/lib/routes";
 import { loadTripView, tripContext } from "@/server/context";
 import type { IdeaCard as IdeaCardModel } from "@/server/cards";
+import { FeedFilters, FeedPrompts, filterFeed, parseFeedFilter } from "@/components/trip/planning/feed-tools";
+import { IdeaExtras } from "@/components/trip/planning/idea-extras";
+import { myNotMyPicks } from "@/server/planning";
+import { loadPlanning } from "@/server/planning-context";
 
-export default async function IdeasPage({ params }: PageProps<"/t/[tripId]">) {
+export default async function IdeasPage({ params, searchParams }: PageProps<"/t/[tripId]">) {
   const { tripId } = await params;
-  const { session } = await tripContext(tripId);
+  const { session, db, claims } = await tripContext(tripId);
   const view = await loadTripView(tripId);
   if (!view) notFound();
   const { size } = view.trip;
@@ -21,6 +25,12 @@ export default async function IdeasPage({ params }: PageProps<"/t/[tripId]">) {
   const canAdd = !!session.user;
   const other = view.members.find((m) => m.id !== view.me.memberId);
   const topPicks = view.ideas.filter((c) => c.rank !== null && (c.myVote === "must" || c.myVote === "down")).slice(0, 5);
+  // FR-S9 / FR-121: Stop filter + "not voted"; FR-49/50 card footers (stages/Stops slice).
+  const plan = await loadPlanning(tripId);
+  const filter = parseFeedFilter(await searchParams, plan);
+  const cards = filterFeed(view.ideas, filter);
+  const notMine = size === "solo" ? new Set<string>() : await myNotMyPicks(db, claims, tripId);
+  const isOrganizer = !!plan?.me.isOrganizer;
 
   return (
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8">
@@ -34,6 +44,9 @@ export default async function IdeasPage({ params }: PageProps<"/t/[tripId]">) {
           </p>
         ) : null}
 
+        <FeedPrompts tripId={tripId} plan={plan} />
+        <FeedFilters tripId={tripId} cards={view.ideas} plan={plan} filter={filter} showUnvoted={size !== "solo"} />
+
         {size === "group" && unvoted > 0 ? (
           <p className="text-sm font-semibold text-primary">
             {unvoted} {unvoted === 1 ? "idea needs" : "ideas need"} your vote
@@ -42,11 +55,29 @@ export default async function IdeasPage({ params }: PageProps<"/t/[tripId]">) {
 
         {view.ideas.length === 0 ? (
           <EmptyIdeas />
+        ) : cards.length === 0 ? (
+          <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">Nothing here.</p>
         ) : (
           <ul className="grid gap-3 xl:grid-cols-2">
-            {view.ideas.map((card) => (
+            {cards.map((card) => (
               <li key={card.id}>
-                <IdeaCard tripId={tripId} card={card} size={size} />
+                <IdeaCard
+                  tripId={tripId}
+                  card={card}
+                  size={size}
+                  extra={
+                    card.processing || card.notAPlace ? null : (
+                      <IdeaExtras
+                        tripId={tripId}
+                        ideaId={card.id}
+                        status={card.status}
+                        isOrganizer={isOrganizer}
+                        showNotMyPick={size !== "solo" && card.myVote === "pass" && (card.status === "shortlisted" || card.status === "planned")}
+                        notMyPick={notMine.has(card.id)}
+                      />
+                    )
+                  }
+                />
               </li>
             ))}
           </ul>
