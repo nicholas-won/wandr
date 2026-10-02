@@ -15,7 +15,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/s/[kind]/[id
   const { kind, id } = await ctx.params;
   const db = await getDb();
   const share = await getPublicShare(db, kind, id);
-  if (!share) return NextResponse.redirect(new URL(routes.home, request.url));
+  if (!share) return NextResponse.redirect(new URL(routes.site, request.url));
   const trip = routes.trip(share.tripId);
 
   const session = await getSession();

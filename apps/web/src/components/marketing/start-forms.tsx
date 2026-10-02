@@ -59,10 +59,12 @@ export function PasteStartForm({
   className,
   label = "Paste a TikTok or link to start",
   idPrefix = "paste",
+  defaultValue,
 }: {
   className?: string;
   label?: string;
   idPrefix?: string;
+  defaultValue?: string;
 }) {
   const inputId = `${idPrefix}-raw`;
   return (
@@ -74,6 +76,7 @@ export function PasteStartForm({
         <Link2 className="size-5 shrink-0 text-muted-foreground" aria-hidden />
         <input
           id={inputId}
+          defaultValue={defaultValue}
           name="raw"
           autoComplete="off"
           placeholder="https://www.tiktok.com/…"

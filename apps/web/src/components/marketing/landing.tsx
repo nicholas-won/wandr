@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  ArrowRight,
   CalendarDays,
   EyeOff,
   Gift,
@@ -17,17 +18,17 @@ import { Brand } from "@/components/brand";
 import { buttonVariants } from "@/components/ui/button";
 import { routes } from "@/lib/routes";
 import { ProductPreview } from "./product-preview";
-import { ClassicSetupForm, PasteStartForm } from "./start-forms";
 
 /**
  * Public landing page. Desktop visitors are usually starting to plan, so the classic setup form
  * is the hero CTA; on phones the paste box comes first (capture-first). Claims are product
  * facts from REQUIREMENTS.md only: no invented testimonials, ratings or usage numbers.
  */
-export function Landing() {
+/** `appUser`: someone with trips or saves gets "Open app" instead of sign-up CTAs. */
+export function Landing({ appUser = false }: { appUser?: boolean }) {
   return (
     <div className="flex flex-1 flex-col">
-      <SiteHeader />
+      <SiteHeader appUser={appUser} />
 
       {/* Hero */}
       <section className="mx-auto grid w-full max-w-6xl items-center gap-10 px-5 pb-16 pt-8 lg:grid-cols-[1.1fr_1fr] lg:gap-16 lg:px-8 lg:pb-24 lg:pt-16">
@@ -42,29 +43,21 @@ export function Landing() {
             Drop the TikToks. Vote by text. Split the bill. {APP_NAME} turns every link your friends share into a
             real place, gets everyone&apos;s vote, and keeps the plan and the money straight.
           </p>
-          {/* Phones: paste-first */}
-          <div className="lg:hidden">
-            <PasteStartForm />
-            <a href="#start" className="mt-3 inline-block text-sm font-semibold text-primary">
-              Or set up a trip by destination →
+          <div className="flex flex-wrap items-center gap-3">
+            <CtaLink label={appUser ? "Open the app" : "Start planning, free"} href={appUser ? routes.home : routes.start} />
+            <a href="#how" className={buttonVariants({ variant: "ghost", size: "lg" })}>
+              See how it works
             </a>
           </div>
-          <ul className="hidden gap-x-6 gap-y-2 text-sm font-medium text-muted-foreground lg:flex lg:flex-wrap">
+          <QuickPaste />
+          <ul className="flex flex-wrap gap-x-6 gap-y-2 text-sm font-medium text-muted-foreground">
             <li>✓ Friends join by text, no app</li>
             <li>✓ Private votes, no peer pressure</li>
             <li>✓ Splits in any currency</li>
           </ul>
         </div>
         <div className="hidden lg:block">
-          <div className="rounded-3xl border bg-card p-6 shadow-xl" id="start-desktop">
-            <h2 className="mb-1 font-display text-2xl font-bold">Plan your next trip</h2>
-            <p className="mb-5 text-sm text-muted-foreground">Takes a minute. Add friends when you&apos;re ready.</p>
-            <ClassicSetupForm />
-            <div className="my-5 flex items-center gap-3 text-xs font-semibold text-muted-foreground">
-              <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
-            </div>
-            <PasteStartForm label="Start from a TikTok, Reel or link" idPrefix="hero-paste" />
-          </div>
+          <ProductPreview />
         </div>
       </section>
 
@@ -162,24 +155,21 @@ export function Landing() {
 
       {/* Final CTA */}
       <section id="start" className="py-16 lg:py-24">
-        <div className="mx-auto grid w-full max-w-6xl items-center gap-10 px-5 lg:grid-cols-2 lg:px-8">
-          <div className="space-y-4">
-            <h2 className="font-display text-4xl font-extrabold leading-tight tracking-tight lg:text-5xl">
-              Your next trip starts with one link.
-            </h2>
-            <p className="text-lg text-muted-foreground">
-              Set it up now. Invite friends when you&apos;re ready. They vote from a text.
-            </p>
-          </div>
-          <div className="space-y-6 rounded-3xl border bg-card p-6 shadow-xl">
-            <ClassicSetupForm cta="Start my trip" idPrefix="final" />
-            <div className="hidden lg:block lg:pt-2">
-              <ProductPreviewNote />
+        <div className="mx-auto w-full max-w-6xl px-5 lg:px-8">
+          <div className="grid items-center gap-8 rounded-[2rem] bg-foreground p-8 text-background lg:grid-cols-[1.4fr_1fr] lg:p-14">
+            <div className="space-y-3">
+              <h2 className="font-display text-4xl font-extrabold leading-tight tracking-tight lg:text-5xl">
+                Your next trip starts with one link.
+              </h2>
+              <p className="text-lg opacity-80">Set it up in a minute. Invite friends when you&apos;re ready. They vote from a text.</p>
+            </div>
+            <div className="flex flex-col items-start gap-3 lg:items-end">
+              <Link href={appUser ? routes.home : routes.start} className={buttonVariants({ size: "lg" })}>
+                {appUser ? "Open the app" : "Start planning, free"} <ArrowRight aria-hidden />
+              </Link>
+              <span className="text-sm opacity-70">No sign-up needed to start.</span>
             </div>
           </div>
-        </div>
-        <div className="mx-auto mt-16 hidden w-full max-w-6xl px-8 lg:block">
-          <ProductPreview />
         </div>
       </section>
 
@@ -198,7 +188,7 @@ export function Landing() {
   );
 }
 
-function SiteHeader() {
+function SiteHeader({ appUser }: { appUser: boolean }) {
   return (
     <header className="sticky top-0 z-20 border-b border-transparent bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-5 lg:px-8">
@@ -210,21 +200,63 @@ function SiteHeader() {
           <a href="#faq" className="hover:text-foreground">FAQ</a>
         </nav>
         <div className="flex items-center gap-3">
-          <Link href={routes.signin()} className="text-sm font-semibold text-muted-foreground hover:text-foreground">
-            Sign in
-          </Link>
-          <CtaLink size="sm" className="hidden sm:inline-flex" />
+          {appUser ? (
+            <Link href={routes.home} className={buttonVariants({ size: "sm" })}>
+              Open app <ArrowRight aria-hidden />
+            </Link>
+          ) : (
+            <>
+              <Link href={routes.signin()} className="text-sm font-semibold text-muted-foreground hover:text-foreground">
+                Sign in
+              </Link>
+              <CtaLink size="sm" className="hidden sm:inline-flex" label="Start planning" href={routes.start} />
+            </>
+          )}
         </div>
       </div>
     </header>
   );
 }
 
-function CtaLink({ size = "lg", className }: { size?: "sm" | "lg"; className?: string }) {
+function CtaLink({
+  size = "lg",
+  className,
+  label = "Start planning, free",
+  href = routes.start,
+}: {
+  size?: "sm" | "lg";
+  className?: string;
+  label?: string;
+  href?: string;
+}) {
   return (
-    <a href="#start" className={buttonVariants({ size, className })}>
-      Start a trip, free
-    </a>
+    <Link href={href} className={buttonVariants({ size, className })}>
+      {label}
+    </Link>
+  );
+}
+
+/** A link pasted on the website opens the app's setup step with it filled in (D64 handoff). */
+function QuickPaste() {
+  return (
+    <form action={routes.start} method="get" className="max-w-xl space-y-2">
+      <label htmlFor="hero-raw" className="text-sm font-semibold">
+        Got a TikTok already? Paste it.
+      </label>
+      <div className="flex items-center gap-2 rounded-full border border-input bg-card p-1.5 pl-4 shadow-sm focus-within:ring-2 focus-within:ring-ring">
+        <Link2 className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+        <input
+          id="hero-raw"
+          name="raw"
+          autoComplete="off"
+          placeholder="https://www.tiktok.com/…"
+          className="min-w-0 flex-1 bg-transparent py-2 text-base outline-none placeholder:text-muted-foreground"
+        />
+        <button type="submit" className={buttonVariants({ size: "sm" })}>
+          Go
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -272,9 +304,9 @@ function UseCase({ icon, title, body }: { icon: React.ReactNode; title: string; 
       </span>
       <h3 className="font-display text-xl font-bold">{title}</h3>
       <p className="mt-2 text-muted-foreground">{body}</p>
-      <a href="#start" className="mt-4 inline-block text-sm font-semibold text-primary">
+      <Link href={routes.start} className="mt-4 inline-block text-sm font-semibold text-primary">
         Start one →
-      </a>
+      </Link>
     </div>
   );
 }
@@ -302,13 +334,5 @@ function Faq({ q, a }: { q: string; a: string }) {
       </summary>
       <p className="mt-2 text-muted-foreground">{a}</p>
     </details>
-  );
-}
-
-function ProductPreviewNote() {
-  return (
-    <p className="text-center text-xs text-muted-foreground">
-      Prefer to start from something you found? <a href="#start-desktop" className="font-semibold text-primary">Paste a link instead</a>.
-    </p>
   );
 }

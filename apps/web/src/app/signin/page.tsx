@@ -7,13 +7,14 @@ import { getSession } from "@/lib/auth/session";
 import { pendingChallenge } from "@/lib/auth/signin";
 import { env } from "@/lib/env";
 import { safeNextPath } from "@/lib/http";
+import { routes } from "@/lib/routes";
 import { SignInForm } from "./signin-form";
 
 export const metadata: Metadata = { title: "Sign in" };
 
 export default async function SignInPage({ searchParams }: PageProps<"/signin">) {
   const sp = await searchParams;
-  const next = safeNextPath(typeof sp.next === "string" ? sp.next : undefined);
+  const next = safeNextPath(typeof sp.next === "string" ? sp.next : undefined, routes.home);
   const session = await getSession();
   let needsName = false;
   // A provisional (zero-setup) creator hasn't verified anything yet: start at the phone step.

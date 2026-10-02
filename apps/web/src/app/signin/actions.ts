@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { requestCode, setDisplayName, verifyCode } from "@/lib/auth/signin";
 import { clientIp, safeNextPath } from "@/lib/http";
+import { routes } from "@/lib/routes";
 import type { SignInState } from "./state";
 
 const MESSAGES = {
@@ -21,7 +22,7 @@ const MESSAGES = {
 
 export async function signInStep(prev: SignInState, formData: FormData): Promise<SignInState> {
   const intent = String(formData.get("intent") ?? "");
-  const next = safeNextPath(prev.next);
+  const next = safeNextPath(prev.next, routes.home);
 
   if (intent === "back") return { step: "contact", channel: prev.channel, next };
   if (intent === "switch") {

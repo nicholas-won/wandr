@@ -10,6 +10,7 @@ const eslintConfig = defineConfig([
     // Default ignores of eslint-config-next:
     ".next/**",
     ".next-e2e/**", // Playwright dev server build (playwright.config.ts)
+    ".next-review/**",
     ".data/**",
     "test-results/**",
     "playwright-report/**",
