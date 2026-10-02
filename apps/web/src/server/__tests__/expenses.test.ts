@@ -20,6 +20,7 @@ import {
   correctLockedExpense,
   createExpense,
   deleteExpense,
+  editItemizedReceipt,
   dropOutChecklist,
   exportExpensesCsv,
   getBudget,
@@ -126,7 +127,8 @@ describe("duo (founder's first test, FR-T8)", () => {
     });
     o = await getMoneyOverview(s.d, Sam!.claims, s.tripId);
     const usd = o.mine.find((l) => l.currency === "USD")!;
-    expect(usd).toMatchObject({ direction: "you_owe", amountMinor: 1000 });
+    // Proportional to 4501:4500 (Q18 gave Nick, the uploader, the odd cent), leftover to Nick again.
+    expect(usd).toMatchObject({ direction: "you_owe", amountMinor: 999 });
     // A second correction is relative to the corrected state.
     await correctLockedExpense(s.d, Nick!.claims, {
       tripId: s.tripId,
@@ -203,7 +205,7 @@ describe("group", () => {
     expect(det!.shares.reduce((a, b) => a + b.shareMinor, 0)).toBe(1000);
   });
 
-  it("itemized: pending claims count at the even default; claims, absorb and tax/tip are proportional (FR-62, E-1, E-4)", async () => {
+  it("itemized: unclaimed items sit on the uploader (Q16); claims, absorb and tax/tip are proportional (FR-62, E-1, E-4)", async () => {
     const s = await setup(["Olivia", "Ben", "Cat"]);
     const { Olivia, Ben, Cat } = s.p as Record<string, Person>;
     const id = await okId(
@@ -223,7 +225,8 @@ describe("group", () => {
     );
     let det = (await getExpenseDetail(s.d, Olivia!.claims, s.tripId, id))!;
     expect(det.validation!.balanced).toBe(true);
-    expect(det.shares.map((x) => x.shareMinor)).toEqual([2200, 2200, 2200]);
+    expect(det.shares.map((x) => [x.memberId, x.shareMinor])).toEqual([[Olivia!.memberId, 6600]]);
+    expect(det.unclaimedOnUploader).toEqual({ count: 3, uploaderName: "You" });
     let o = await getMoneyOverview(s.d, Olivia!.claims, s.tripId);
     expect(o.expenses[0]!).toMatchObject({ pendingClaims: 3, needsMyAttention: true });
 
@@ -243,12 +246,52 @@ describe("group", () => {
     expect(o.expenses[0]!.pendingClaims).toBe(0);
   });
 
-  it("itemized receipts that don't add up need a decision (E-6)", async () => {
+  it("itemized receipts that don't add up: flagged, payer covers the gap, items can be re-entered (Q17, MT6)", async () => {
     const s = await setup(["Olivia", "Ben", "Cat"]);
-    const { Olivia } = s.p as Record<string, Person>;
+    const { Olivia, Ben } = s.p as Record<string, Person>;
+    // Ben pays; Olivia uploads. Lines 4000 vs total 5000: the payer covers the 1000 gap.
+    const gapId = await okId(
+      add(s.d, Olivia!, s.tripId, {
+        method: "itemized",
+        totalMinor: 5000,
+        paidByMemberId: Ben!.memberId,
+        merchant: "Gap Cafe",
+        items: [
+          { label: "A", amountMinor: 3000 },
+          { label: "B", amountMinor: 1000 },
+        ],
+      }),
+    );
+    let g = (await getExpenseDetail(s.d, Olivia!.claims, s.tripId, gapId))!;
+    expect(g.gap).toEqual({ amountMinor: 1000, coveredBy: "Ben" });
+    const a = g.items.find((i) => i.label === "A");
+    const b = g.items.find((i) => i.label === "B");
+    await setClaim(s.d, Ben!.claims, { tripId: s.tripId, expenseId: gapId, itemId: a!.id, memberId: Ben!.memberId, weight: 1 });
+    await setClaim(s.d, Olivia!.claims, { tripId: s.tripId, expenseId: gapId, itemId: b!.id, memberId: Olivia!.memberId, weight: 1 });
+    g = (await getExpenseDetail(s.d, Olivia!.claims, s.tripId, gapId))!;
+    const sh = (m: Person) => g.shares.find((x) => x.memberId === m.memberId)!.shareMinor;
+    expect([sh(Ben!), sh(Olivia!)]).toEqual([4000, 1000]);
+    // MT6: re-enter the items until it adds up; claims on kept lines stay.
+    const r = await editItemizedReceipt(s.d, Olivia!.claims, {
+      tripId: s.tripId,
+      expenseId: gapId,
+      totalMinor: 5000,
+      items: [
+        { id: a!.id, label: "A", amountMinor: 3000 },
+        { id: b!.id, label: "B", amountMinor: 1000 },
+        { label: "C", amountMinor: 1000 },
+      ],
+      charges: [],
+    });
+    expect(r.gapMinor).toBe(0);
+    g = (await getExpenseDetail(s.d, Olivia!.claims, s.tripId, gapId))!;
+    expect(g.gap).toBeNull();
+    // the new line C is unclaimed → on the uploader (Q16)
+    expect([sh(Ben!), sh(Olivia!)]).toEqual([3000, 2000]);
+    // Ben (not the uploader, not an organizer) can't edit the items.
     await expect(
-      add(s.d, Olivia!, s.tripId, { method: "itemized", totalMinor: 5000, items: [{ label: "A", amountMinor: 4000 }] }),
-    ).rejects.toThrow(/don't add up/);
+      editItemizedReceipt(s.d, Ben!.claims, { tripId: s.tripId, expenseId: gapId, totalMinor: 5000, items: [{ label: "X", amountMinor: 5000 }], charges: [] }),
+    ).rejects.toThrow(/Only the person/);
     const id = await okId(
       add(s.d, Olivia!, s.tripId, {
         method: "itemized",
@@ -416,7 +459,7 @@ describe("receipts (FR-60/61, E-31)", () => {
   });
   const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5]);
 
-  it("upload → AI read → prefill → expense; photo visible only to people on the expense", async () => {
+  it("upload → AI read → prefill → expense; photo visible to everyone on the trip (MT3)", async () => {
     const s = await setup(["Olivia", "Ben", "Cat"]);
     const { Olivia, Ben, Cat } = s.p as Record<string, Person>;
     const storage = localStorageAdapter(mkdtempSync(join(tmpdir(), "wandr-rcpt-")));
@@ -464,7 +507,8 @@ describe("receipts (FR-60/61, E-31)", () => {
       }),
     );
     expect(await openReceiptImage(s.d, Ben!.claims, s.tripId, up.uploadId, storage)).toMatchObject({ contentType: "image/jpeg" });
-    expect(await openReceiptImage(s.d, Cat!.claims, s.tripId, up.uploadId, storage)).toBeNull(); // not on the expense (E-31)
+    // MT3: everyone on the trip sees the photo, even people not on the expense.
+    expect(await openReceiptImage(s.d, Cat!.claims, s.tripId, up.uploadId, storage)).toMatchObject({ contentType: "image/jpeg" });
     const [row] = await asService(s.d, (tx) => tx.select().from(expenses).where(eq(expenses.id, id)));
     expect(row!.receiptHash).toHaveLength(64);
 

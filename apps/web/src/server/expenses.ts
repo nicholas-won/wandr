@@ -917,7 +917,8 @@ export async function correctLockedExpense(db: Db, claims: Claims, input: Correc
     const original = await ledgerOf(tx, e);
     const prior = await adjustmentsFor(tx, e.id, e.currency);
     const current = await currentState(tx, e, original);
-    const target = targetSplit(ctx, e, current, input.totalMinor, input.participantIds);
+    // Weights come from the ORIGINAL split so repeated corrections don't drift by a cent each time.
+    const target = targetSplit(ctx, e, original, input.totalMinor, input.participantIds);
     // Q23a: who paid in the corrected version.
     let payerId = input.paidByMemberId;
     let payers: money.PayerPart[] | null = null;

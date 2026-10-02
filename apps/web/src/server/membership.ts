@@ -15,6 +15,7 @@ import {
   auditLog,
   expenseAdjustments,
   expenses,
+  expensePayers,
   expenseShares,
   memberContacts,
   members,
@@ -806,14 +807,19 @@ export async function ownerSuccessionOnAccountDeletion(
 
 /** All-currency balances for a trip (service read: money must be complete, FR-70). */
 export async function tripBalances(tx: Tx, tripId: string): Promise<money.Balances> {
+  // Personal-only expenses (Q23c) never touch group balances.
   const exp = await tx
     .select({ id: expenses.id, currency: expenses.currency, total: expenses.totalMinor, payer: expenses.paidByMemberId })
     .from(expenses)
-    .where(and(eq(expenses.tripId, tripId), isNull(expenses.deletedAt)));
+    .where(and(eq(expenses.tripId, tripId), isNull(expenses.deletedAt), isNull(expenses.personalMemberId)));
   const ids = exp.map((e) => e.id);
   const shares = ids.length
     ? await tx.select().from(expenseShares).where(inArray(expenseShares.expenseId, ids))
     : [];
+  // Q23a: several payers per bill.
+  const payerRows = ids.length ? await tx.select().from(expensePayers).where(inArray(expensePayers.expenseId, ids)) : [];
+  const payersBy = new Map<string, { memberId: string; paidMinor: number }[]>();
+  for (const p of payerRows) payersBy.set(p.expenseId, [...(payersBy.get(p.expenseId) ?? []), { memberId: p.memberId, paidMinor: p.paidMinor }]);
   const adj = await tx
     .select({ memberId: expenseAdjustments.memberId, delta: expenseAdjustments.deltaMinor, currency: expenses.currency })
     .from(expenseAdjustments)
@@ -827,7 +833,14 @@ export async function tripBalances(tx: Tx, tripId: string): Promise<money.Balanc
     byExpense.set(s.expenseId, list);
   }
   return money.computeBalances({
-    expenses: exp.map((e) => ({ id: e.id, currency: e.currency, totalMinor: e.total, payerId: e.payer, shares: byExpense.get(e.id) ?? [] })),
+    expenses: exp.map((e) => ({
+      id: e.id,
+      currency: e.currency,
+      totalMinor: e.total,
+      payerId: e.payer,
+      ...(payersBy.get(e.id) ? { payers: payersBy.get(e.id)! } : {}),
+      shares: byExpense.get(e.id) ?? [],
+    })),
     adjustments: adj.map((a) => ({ memberId: a.memberId, currency: a.currency, deltaMinor: a.delta })),
     payments: pays.map((p) => ({
       fromMemberId: p.fromMemberId,
@@ -840,7 +853,12 @@ export async function tripBalances(tx: Tx, tripId: string): Promise<money.Balanc
 
 export type OpenBalance = { currency: string; balanceMinor: number };
 
-/** The member's non-zero balances (positive = they're owed). Organizers or the member themselves. */
+/**
+ * The member's non-zero balances (positive = they're owed). Organizers or the member themselves.
+ * JR10 (founder decision 2026-10-02: "the organizer should have a view into everything"): this
+ * is a service read, so the totals an organizer sees during removal include surprise expenses
+ * hidden from them (FR-91). Only totals leave here, never the hidden expenses themselves.
+ */
 export async function balanceFor(db: Db, userId: string, tripId: string, memberId: string): Promise<OpenBalance[]> {
   const me = await myMember(db, userId, tripId);
   if (!me || (me.id !== memberId && me.role === "member")) throw new MembershipError("not_allowed");
