@@ -18,9 +18,9 @@ export async function onTextedIdea(phone: string, url: string): Promise<{ reply:
 
 /**
  * A draft expense from a texted receipt photo (FR-82, §6.5).
- * TODO(expenses slice): create the draft expense for `memberId` in `tripId` from the stored
- * photo at `storagePath` (private bucket), kick off receipt reading, and return a link to split
- * it (the reply falls back to the member's personal link). Must not throw for bad photos.
+ * The stored photo becomes a receipt draft for the sender (server/receipts.ts), the AI read
+ * runs after the response, and the reply links to the confirm-and-split form (the uploader
+ * confirms the total before anything reaches balances, E-7). Never throws for bad photos.
  */
 export async function onReceiptDraft(d: {
   tripId: string;
@@ -29,7 +29,22 @@ export async function onReceiptDraft(d: {
   contentType: string;
   receivedAt: Date;
 }): Promise<{ url?: string | null } | void> {
-  console.info(`[hooks] onReceiptDraft trip=${d.tripId} member=${d.memberId} path=${d.storagePath} (not wired yet)`);
+  try {
+    const db = await getDb();
+    const { draftFromStoredReceipt, readReceiptJob } = await import("@/server/receipts");
+    const draft = await draftFromStoredReceipt(db, d);
+    if (!draft) return;
+    const { after } = await import("next/server");
+    try {
+      after(() => readReceiptJob(db, draft.uploadId));
+    } catch {
+      void readReceiptJob(db, draft.uploadId); // outside a request scope (jobs/tests)
+    }
+    const { appUrl } = await import("@/lib/env");
+    return { url: `${appUrl()}/t/${d.tripId}/money/new?receipt=${draft.uploadId}` };
+  } catch (err) {
+    console.error("[hooks] receipt draft failed", err);
+  }
 }
 
 /** A photo texted to our number (FR-82): treated as a receipt for the most recently active trip. */

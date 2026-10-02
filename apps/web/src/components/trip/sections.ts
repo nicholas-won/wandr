@@ -22,6 +22,8 @@ export const TRIP_SECTIONS: TripSection[] = [
   { segment: "polls", label: "Polls", show: (v) => v.trip.size !== "solo" },
   // FR-122: once there's a place to show.
   { segment: "map", label: "Map", show: (v) => v.ideas.some((c) => !c.processing && !c.notAPlace) },
+  // §6.5 / FR-124: appears after the first expense (P2); "Add an expense" on the ideas page otherwise.
+  { segment: "money", label: "Money", soloLabel: "Spending", show: (v) => v.hasExpenses },
   { segment: "people", label: "People", soloLabel: "Invite" },
   // FR-80a group-chat sharing; no group features in solo trips (§6.10).
   { segment: "share", label: "Share", show: (v) => v.trip.size !== "solo" },

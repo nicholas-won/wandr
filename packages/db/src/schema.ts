@@ -417,6 +417,14 @@ export const expenses = pgTable(
     paidByMemberId: uuid("paid_by_member_id").notNull().references(() => members.id),
     uploadedByMemberId: uuid("uploaded_by_member_id").notNull().references(() => members.id),
     receiptPath: text("receipt_path"),
+    /** SHA-256 of the receipt image, for duplicate detection (FR-64, E-11). */
+    receiptHash: text("receipt_hash"),
+    /**
+     * Inputs needed to recompute shares (FR-62, FR-90): selected participants, receipt charges
+     * (tax/tip/service/fees/discounts) and how an unassigned difference is handled (E-6).
+     * Shape: ExpenseSplitConfig in apps/web/src/server/expenses.ts.
+     */
+    splitConfig: jsonb("split_config").notNull().default({}),
     /** Refunds point at the expense they reverse (FR-72). */
     refundOfExpenseId: uuid("refund_of_expense_id"),
     lockedAt: timestamp("locked_at", { withTimezone: true }), // FR-69
@@ -485,6 +493,52 @@ export const payments = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("payments_trip_idx").on(t.tripId)],
+);
+
+/**
+ * Receipt photos waiting to become an expense (FR-60/61). The AI read lands in `result`; the
+ * uploader confirms the total in an editable form before anything reaches balances (E-7).
+ */
+export const receiptUploads = pgTable(
+  "receipt_uploads",
+  {
+    id: id(),
+    tripId: uuid("trip_id").notNull().references(() => trips.id, { onDelete: "cascade" }),
+    uploadedByMemberId: uuid("uploaded_by_member_id").notNull().references(() => members.id),
+    storagePath: text("storage_path").notNull(),
+    contentType: text("content_type").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    imageHash: text("image_hash").notNull(),
+    /** reading → read | failed (manual entry). */
+    status: text("status").notNull().default("reading"),
+    result: jsonb("result"),
+    expenseId: uuid("expense_id").references(() => expenses.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index("receipt_uploads_trip_idx").on(t.tripId)],
+);
+
+/**
+ * Organizer decisions about past expenses when membership changes (append-only):
+ * late joiners (FR-12, FR-T10) and drop-outs (FR-13).
+ * kind 'late_join': decision 'include' | 'skip' | 'replaced' (took over a drop-out's share).
+ * kind 'drop_out':  decision 'keep' | 'redistribute' | 'refund_if_replaced'.
+ */
+export const expenseMemberDecisions = pgTable(
+  "expense_member_decisions",
+  {
+    id: id(),
+    tripId: uuid("trip_id").notNull().references(() => trips.id, { onDelete: "cascade" }),
+    expenseId: uuid("expense_id").notNull().references(() => expenses.id),
+    memberId: uuid("member_id").notNull().references(() => members.id),
+    kind: text("kind").notNull(),
+    decision: text("decision").notNull(),
+    /** For 'replaced': the drop-out whose share moved to `member_id`. */
+    replacedMemberId: uuid("replaced_member_id").references(() => members.id),
+    decidedByMemberId: uuid("decided_by_member_id").references(() => members.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index("expense_member_decisions_trip_idx").on(t.tripId, t.memberId)],
 );
 
 /** Private budget answers (FR-74). Only aggregates leave the DB. */

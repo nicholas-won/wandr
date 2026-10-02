@@ -5,6 +5,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   asService,
+  expenses,
   ideas,
   ideaSources,
   members,
@@ -102,6 +103,8 @@ export interface TripView {
   invited: { id: string; displayName: string; status: string }[];
   stops: { id: string; name: string; isDefault: boolean; position: number }[];
   ideas: IdeaCard[];
+  /** The caller can see at least one expense (full scope only, FR-5). Money nav appears after the first (P2). */
+  hasExpenses: boolean;
 }
 
 /** Everything the trip page needs, as the caller. Returns null if the caller can't see the trip. */
@@ -149,6 +152,7 @@ export async function getTripView(db: Db, claims: Claims, tripId: string): Promi
       .from(votes)
       .where(and(eq(votes.tripId, tripId), eq(votes.memberId, me.id)));
     const reveals = await ideaReveals(tx, tripId);
+    const anyExpense = await tx.select({ id: expenses.id }).from(expenses).where(eq(expenses.tripId, tripId)).limit(1);
 
     return {
       trip: { id: trip.id, name: trip.name, size, bachMode: trip.bachMode },
@@ -166,6 +170,7 @@ export async function getTripView(db: Db, claims: Claims, tripId: string): Promi
         .filter((m) => m.status === "invited" || m.status === "pending")
         .map(({ id, displayName, status }) => ({ id, displayName, status })),
       stops: stopRows,
+      hasExpenses: anyExpense.length > 0,
       ideas: buildIdeaCards({
         size,
         viewerMemberId: me.id,

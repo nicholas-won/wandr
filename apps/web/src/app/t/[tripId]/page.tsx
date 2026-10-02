@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarDays } from "lucide-react";
 import { AddIdea } from "@/components/trip/add-idea";
+import { AddExpenseLink } from "@/components/money/add-expense-link";
 import { AutoRefresh } from "@/components/trip/auto-refresh";
 import { IdeaCard } from "@/components/trip/idea-card";
 import { buttonVariants } from "@/components/ui/button";
@@ -44,6 +45,7 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
       <main className="space-y-4">
         <AutoRefresh active={processing} />
         {canAdd ? <AddIdea tripId={tripId} autoFocus={view.ideas.length === 0} /> : null}
+        {canAdd && !view.hasExpenses ? <AddExpenseLink tripId={tripId} /> : null}
 
         {size === "duo" && !view.me.noticesSeen.includes("duo_votes_visible") ? (
           <p className="rounded-xl bg-secondary px-4 py-3 text-sm text-secondary-foreground">

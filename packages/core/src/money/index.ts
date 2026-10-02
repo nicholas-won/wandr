@@ -15,3 +15,4 @@ export * from "./simplify";
 export * from "./membership";
 export * from "./duplicates";
 export * from "./reports";
+export * from "./corrections";
