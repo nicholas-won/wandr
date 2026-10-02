@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // E2E runs its own dev server next to a normal one (playwright.config.ts).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // Let local testing on 127.0.0.1 reach dev resources (dev only).
   allowedDevOrigins: ["127.0.0.1"],
   // Workspace packages ship TypeScript source.

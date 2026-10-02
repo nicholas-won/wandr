@@ -24,9 +24,9 @@ async function me(tripId: string) {
   return { ...ctx, view };
 }
 
-function failure(e: unknown, tripId: string): ActionResult {
+function failure(e: unknown, tripId: string, returnTo = routes.trip(tripId)): ActionResult {
   if (e instanceof AuthError) {
-    return { ok: false, error: "Confirm your number first.", signin: routes.signin(routes.trip(tripId)) };
+    return { ok: false, error: "Confirm your number first.", signin: routes.signin(returnTo) };
   }
   console.error(e);
   return { ok: false, error: "Something went wrong. Try again." };
@@ -114,7 +114,7 @@ export async function inviteAction(tripId: string, name: string, phone: string):
       message: r.texted ? `Texted ${name.trim()} their link.` : `Send ${name.trim()} their link yourself.`,
     };
   } catch (e) {
-    return failure(e, tripId);
+    return failure(e, tripId, `${routes.trip(tripId)}/people`);
   }
 }
 
@@ -126,6 +126,6 @@ export async function shareLinkAction(tripId: string, memberId: string): Promise
     if (!link) return { ok: false, error: "Only organizers can share invite links." };
     return { ok: true, link: link.url };
   } catch (e) {
-    return failure(e, tripId);
+    return failure(e, tripId, `${routes.trip(tripId)}/people`);
   }
 }
