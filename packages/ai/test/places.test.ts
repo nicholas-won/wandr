@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  DETAILS_FIELD_MASK,
   PLACES_SEARCH_URL,
   PlacesError,
+  SEARCH_FIELD_MASK,
+  isPhotoName,
+  isPlaceId,
   choosePlace,
   createPlacesClient,
   haversineKm,
@@ -66,6 +70,96 @@ describe("createPlacesClient", () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 429 }));
     const client = createPlacesClient({ apiKey: "k", fetch: fetchMock as unknown as typeof fetch })!;
     await expect(client.searchText({ textQuery: "x" })).rejects.toBeInstanceOf(PlacesError);
+  });
+});
+
+const PHOTO = "places/ChIJ1234567890/photos/AelY_CvPhotoRef0123456789";
+
+describe("place photos (display cache only)", () => {
+  it("keeps only the first photo's name and author attributions", () => {
+    const c = mapRawPlace({
+      id: "ChIJ1234567890",
+      displayName: { text: "Ramiro" },
+      photos: [
+        {
+          name: PHOTO,
+          widthPx: 4032,
+          heightPx: 3024,
+          authorAttributions: [
+            { displayName: " Ana Silva ", uri: "https://maps.google.com/maps/contrib/123", photoUri: "https://lh3.googleusercontent.com/a" },
+            { displayName: "Evil", uri: "javascript:alert(1)" },
+            { uri: "https://maps.google.com/maps/contrib/9" },
+          ],
+        },
+        { name: "places/ChIJ1234567890/photos/second_photo_ref_xyz" },
+      ],
+    })!;
+    expect(c.display.photo).toEqual({
+      name: PHOTO,
+      widthPx: 4032,
+      heightPx: 3024,
+      attributions: [
+        { displayName: "Ana Silva", uri: "https://maps.google.com/maps/contrib/123" },
+        { displayName: "Evil", uri: null },
+      ],
+    });
+    // Never photo bytes or Google's photo URLs.
+    expect(JSON.stringify(c.display)).not.toContain("googleusercontent");
+  });
+
+  it("drops malformed photo names and handles places without photos", () => {
+    expect(mapRawPlace({ id: "ChIJ1234567890", photos: [{ name: "../../evil" }] })!.display.photo).toBeNull();
+    expect(mapRawPlace({ id: "ChIJ1234567890" })!.display.photo).toBeNull();
+  });
+
+  it("requests photos in the Text Search and Details field masks", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
+      new Response(JSON.stringify({ id: "ChIJ1234567890", displayName: { text: "Ramiro" }, photos: [{ name: PHOTO }] }), { status: 200 }),
+    );
+    const client = createPlacesClient({ apiKey: "k", fetch: fetchMock as unknown as typeof fetch })!;
+    const got = await client.getPlace("ChIJ1234567890");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://places.googleapis.com/v1/places/ChIJ1234567890");
+    const headers = init!.headers as Record<string, string>;
+    expect(headers["x-goog-fieldmask"]!.split(",")).toContain("photos");
+    expect(headers["x-goog-fieldmask"]).not.toContain("places.");
+    expect(headers["x-goog-api-key"]).toBe("k");
+    expect(got!.display.photo!.name).toBe(PHOTO);
+    expect(SEARCH_FIELD_MASK.split(",")).toContain("places.photos");
+    expect(DETAILS_FIELD_MASK.split(",")).toContain("photos");
+  });
+
+  it("getPlace: 404 → null; bad ids never reach Google", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 404 }));
+    const client = createPlacesClient({ apiKey: "k", fetch: fetchMock as unknown as typeof fetch })!;
+    expect(await client.getPlace("ChIJ1234567890")).toBeNull();
+    await expect(client.getPlace("../x?y")).rejects.toBeInstanceOf(PlacesError);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("fetchPhoto: key in a header (not the URL), clamped width, errors throw", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
+      new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "image/jpeg" } }),
+    );
+    const client = createPlacesClient({ apiKey: "secret", fetch: fetchMock as unknown as typeof fetch })!;
+    const res = await client.fetchPhoto(PHOTO, { maxWidthPx: 99_999 });
+    expect(res.headers.get("content-type")).toBe("image/jpeg");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe(`https://places.googleapis.com/v1/${PHOTO}/media?maxWidthPx=4800`);
+    expect(String(url)).not.toContain("secret");
+    expect((init!.headers as Record<string, string>)["x-goog-api-key"]).toBe("secret");
+    await expect(client.fetchPhoto("places/x/photos/../../admin")).rejects.toBeInstanceOf(PlacesError);
+
+    const failing = createPlacesClient({ apiKey: "k", fetch: (async () => new Response("", { status: 400 })) as unknown as typeof fetch })!;
+    await expect(failing.fetchPhoto(PHOTO)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("validates photo names and place ids", () => {
+    expect(isPhotoName(PHOTO)).toBe(true);
+    expect(isPhotoName(`${PHOTO}/media`)).toBe(false);
+    expect(isPhotoName("https://evil.example/x")).toBe(false);
+    expect(isPlaceId("ChIJN1t_tDeuEmsRUsoyG83frY4")).toBe(true);
+    expect(isPlaceId("ChIJ/../../")).toBe(false);
   });
 });
 

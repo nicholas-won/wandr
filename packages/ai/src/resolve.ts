@@ -18,7 +18,7 @@ import {
   type TripContext,
 } from "./extract";
 import { fetchSourceMetadata, type GeoPoint, type SourceMetadata } from "./intake";
-import { choosePlace, nearestStop, type PlaceCandidate, type PlaceDisplayCache, type PlacesClient } from "./places";
+import { choosePlace, nearestStop, type PlaceCandidate, type PlaceDisplayCache, type PlaceSearch } from "./places";
 import { safeFetch, type Fetcher } from "./safe-fetch";
 import { classifyInput, isShortLink, normalizeUrl, type PastedKind } from "./url";
 
@@ -98,7 +98,7 @@ export interface ResolveDeps {
   /** null/undefined → heuristic extraction. */
   model?: StructuredModel | null;
   /** null/undefined → no Places match (cards stay placeless, confidence unchanged). */
-  places?: PlacesClient | null;
+  places?: PlaceSearch | null;
   cache?: ResolveCache | null;
   rateLimiter?: RateLimiter | null;
   now?: () => Date;
@@ -253,7 +253,7 @@ async function resolvePlace(
   p: ExtractedPlace,
   kind: ExtractionKind,
   trip: TripContext,
-  places: PlacesClient | null,
+  places: PlaceSearch | null,
   warnings: string[],
 ): Promise<ResolvedPlace> {
   const reasons: string[] = [];
