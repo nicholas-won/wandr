@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { asService, ideas, members, planItems, polls, stops, tripStages, users, votes, type Db } from "@wandr/db";
+import { asService, expenses, ideas, members, planItems, polls, stops, tripStages, users, votes, type Db } from "@wandr/db";
 import { createPglite } from "@wandr/db/pglite";
 import { castVote, createTrip } from "../trips";
 import {
@@ -207,12 +207,11 @@ describe("Stops (FR-S3, S5, S6, S7, S10, S-5, S-9)", () => {
     );
     // Shorter stay: the Day 4 item can't shift.
     const r = await updateStop(t.d, t.A, { stopId: t.stopId, startDate: "2027-04-05", endDate: "2027-04-06" });
-    expect(r).toMatchObject({
+    expect(r).toEqual({
       ok: false,
       reason: "needs_choices",
       deltaDays: 2,
       planItems: [{ id: item!.id, title: "Pastéis", dayIndex: 3, canShift: false }],
-      polls: [{ id: poll!.id, question: "Dinner?" }],
     });
     // Nothing saved yet.
     let [s] = await asService(t.d, (tx) => tx.select().from(stops).where(eq(stops.id, t.stopId)));
@@ -221,14 +220,16 @@ describe("Stops (FR-S3, S5, S6, S7, S10, S-5, S-9)", () => {
       stopId: t.stopId,
       startDate: "2027-04-05",
       endDate: "2027-04-06",
-      choices: { [item!.id]: "unschedule", [poll!.id]: "shift" },
+      choices: { [item!.id]: "unschedule" },
     });
     expect(ok).toEqual({ ok: true });
     [s] = await asService(t.d, (tx) => tx.select().from(stops).where(eq(stops.id, t.stopId)));
     expect([s!.startDate, s!.nights]).toEqual(["2027-04-05", 1]);
     expect(await asService(t.d, (tx) => tx.select().from(planItems))).toEqual([]);
+    // ST2: the city's poll is left alone (same deadline, not paused).
     const [p] = await asService(t.d, (tx) => tx.select().from(polls).where(eq(polls.id, poll!.id)));
-    expect(p!.closesAt!.getTime() - poll!.closesAt!.getTime()).toBe(2 * 86_400_000);
+    expect(p!.closesAt!.getTime()).toBe(poll!.closesAt!.getTime());
+    expect(p!.pausedAt).toBeNull();
     // The idea is still planned and shows as "needs a day".
     const v = await getPlanningView(t.d, t.A, t.tripId);
     expect(v!.stops[0]!.needsDay.map((x) => x.title)).toEqual(["Pastéis"]);
@@ -237,6 +238,67 @@ describe("Stops (FR-S3, S5, S6, S7, S10, S-5, S-9)", () => {
       reason: "invalid",
       error: "end_before_start",
     });
+  });
+
+  it("removing a city with polls, plans and expenses: preview, then apply (ST5)", async () => {
+    const t = await setup(3);
+    const { stopId: porto } = await addStop(t.d, t.A, { tripId: t.tripId, name: "Porto" });
+    const [idea] = await addIdeas(t.d, t.tripId, [{ stopId: porto, title: "Livraria Lello", status: "planned" }]);
+    await asService(t.d, (tx) => tx.insert(planItems).values({ tripId: t.tripId, stopId: porto, ideaId: idea, dayIndex: 0 }));
+    const [poll] = await asService(t.d, (tx) =>
+      tx
+        .insert(polls)
+        .values({ tripId: t.tripId, stopId: porto, kind: "custom", question: "Which bar?", closesAt: new Date(Date.now() + 86_400_000) })
+        .returning({ id: polls.id }),
+    );
+    const [exp] = await asService(t.d, (tx) =>
+      tx
+        .insert(expenses)
+        .values({
+          tripId: t.tripId,
+          stopId: porto,
+          paidByMemberId: t.ana,
+          uploadedByMemberId: t.ana,
+          merchant: "Port tasting",
+          totalMinor: 4000,
+          currency: "EUR",
+        })
+        .returning({ id: expenses.id }),
+    );
+    // Members can't; organizers see a preview first and nothing changes.
+    await expect(removeStop(t.d, t.B, { stopId: porto })).rejects.toThrow("organizers_only");
+    const r = await removeStop(t.d, t.A, { stopId: porto });
+    expect(r).toMatchObject({
+      ok: false,
+      reason: "confirm",
+      preview: {
+        stopName: "Porto",
+        ideas: 1,
+        pollsToClose: [{ id: poll!.id, question: "Which bar?" }],
+        planItems: [{ title: "Livraria Lello" }],
+        expenses: 1,
+      },
+    });
+    expect(await asService(t.d, (tx) => tx.select().from(stops).where(eq(stops.id, porto)))).toHaveLength(1);
+
+    expect(await removeStop(t.d, t.A, { stopId: porto, confirmed: true })).toEqual({ ok: true });
+    expect(await asService(t.d, (tx) => tx.select().from(stops).where(eq(stops.id, porto)))).toEqual([]);
+    const [i] = await asService(t.d, (tx) => tx.select().from(ideas).where(eq(ideas.id, idea!)));
+    expect(i!.stopId).toBeNull(); // Unsorted
+    const [p] = await asService(t.d, (tx) => tx.select().from(polls).where(eq(polls.id, poll!.id)));
+    expect(p!.closedAt).not.toBeNull();
+    expect(p!.stopId).toBeNull();
+    expect(p!.closedByMemberId).toBe(t.ana);
+    expect(await asService(t.d, (tx) => tx.select().from(planItems))).toEqual([]);
+    const [e] = await asService(t.d, (tx) => tx.select().from(expenses).where(eq(expenses.id, exp!.id)));
+    expect(e).toMatchObject({ stopId: null, totalMinor: 4000, deletedAt: null }); // kept, unlinked
+  });
+
+  it("organizers set anyone's attendance (Q13); members only their own", async () => {
+    const t = await setup(3);
+    await setAttendance(t.d, t.A, { stopId: t.stopId, memberId: t.cy, attending: false });
+    expect((await getPlanningView(t.d, t.C, t.tripId))!.stops[0]!.myAttendance).toBe("no");
+    await expect(setAttendance(t.d, t.B, { stopId: t.stopId, memberId: t.ana, attending: false })).rejects.toThrow("not_allowed");
   });
 
   it("attendance: self only, link sessions can't, assumed by default (FR-S7, S-12)", async () => {

@@ -29,8 +29,11 @@ import {
   balanceFor,
   confirmInviteName,
   decideJoinRequest,
+  deleteTrip,
   getGroupLink,
   getPeople,
+  getSizeNotices,
+  tripDeletionPreview,
   inspectGroupLink,
   joinViaGroupLink,
   leaveTrip,
@@ -447,5 +450,41 @@ describe("managed members and size notices (FR-11, FR-T3/T4/T5)", () => {
 
     await removeMember(d, { userId: s.owner.id, tripId: s.tripId, memberId: cy.memberId }); // group → duo
     expect((await getPeople(d, { sub: sam.id }, s.tripId))!.notices).toEqual(["group_to_duo"]);
+  });
+});
+
+describe("founder decisions: delete trip (JR3), managed members (JR11), feed notices (JR13)", () => {
+  it("only the owner deletes, after typing the name; hidden for everyone, rows kept", async () => {
+    const s = await setup();
+    const sam = await joinAndApprove(s, "Sam");
+    await expectCode(deleteTrip(d, { userId: sam.id, tripId: s.tripId, confirmation: "Sarah's surprise bach" }), "not_allowed");
+    expect(await tripDeletionPreview(d, s.owner.id, s.tripId)).toMatchObject({
+      tripName: "Sarah's surprise bach",
+      otherMembers: 1,
+    });
+    await expectCode(deleteTrip(d, { userId: s.owner.id, tripId: s.tripId, confirmation: "nope" }), "confirmation_mismatch");
+    await deleteTrip(d, { userId: s.owner.id, tripId: s.tripId, confirmation: "sarah's SURPRISE bach" });
+    expect(await getPeople(d, { sub: sam.id }, s.tripId)).toBeNull();
+    expect(await getPeople(d, { sub: s.owner.id }, s.tripId)).toBeNull();
+    expect(await inspectGroupLink(d, s.token)).toBeNull();
+    const [t] = await asService(d, (tx) => tx.select().from(trips).where(eq(trips.id, s.tripId)));
+    expect(t!.deletedAt).not.toBeNull();
+  });
+
+  it("organizers act for a managed member once their manager leaves", async () => {
+    const s = await setup();
+    const mia = await joinAndApprove(s, "Mia");
+    await addManagedMember(d, { userId: mia.id, tripId: s.tripId, name: "Kid" });
+    const kidOf = async () => (await getPeople(d, { sub: s.owner.id }, s.tripId))!.people.find((p) => p.displayName === "Kid")!;
+    expect(await kidOf()).toMatchObject({ managedByName: "Mia", managedByMe: false });
+    await leaveTrip(d, { userId: mia.id, tripId: s.tripId });
+    expect(await kidOf()).toMatchObject({ managedByName: "organizers", managedByMe: true });
+  });
+
+  it("size notices are available for the Ideas feed too", async () => {
+    const s = await setup();
+    const sam = await joinAndApprove(s, "Sam");
+    await joinAndApprove(s, "Cy"); // duo → group
+    expect(await getSizeNotices(d, { sub: sam.id }, s.tripId)).toEqual({ memberId: sam.memberId, notices: ["duo_to_group"] });
   });
 });
