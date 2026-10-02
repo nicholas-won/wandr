@@ -22,8 +22,21 @@ export function pgliteDriver(client: PGlite): MigrationDriver {
   };
 }
 
+/**
+ * One open PGlite per data directory for the life of the process. Opening a second instance on
+ * the same directory (after a failed migration, or when dev hot-reload re-evaluates this module)
+ * corrupts state, so persistent clients live on globalThis and retries only re-run migrations.
+ */
+const OPEN = ((globalThis as { __wandrPglite?: Map<string, PGlite> }).__wandrPglite ??= new Map());
+
 export async function createPglite(dataDir?: string) {
-  const client = new PGlite(dataDir);
+  let client: PGlite;
+  if (dataDir) {
+    client = OPEN.get(dataDir) ?? new PGlite(dataDir);
+    OPEN.set(dataDir, client);
+  } else {
+    client = new PGlite(); // in-memory: a fresh database every time (tests)
+  }
   await applyMigrations(pgliteDriver(client));
   return { client, db: drizzle(client, { schema }) };
 }

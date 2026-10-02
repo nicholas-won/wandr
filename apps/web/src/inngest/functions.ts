@@ -4,6 +4,7 @@
  */
 import { getDb } from "@wandr/db";
 import { runJob } from "@/server/jobs";
+import { closeDuePolls } from "@/server/polls";
 import { runDailyDigest, runPollClosingNudges, runPollShareFallbacks } from "@/server/notify";
 import { EVENTS, inngest } from "./client";
 
@@ -45,6 +46,12 @@ export const pollClosingNudges = inngest.createFunction(
   async () => runPollClosingNudges(await getDb()),
 );
 
+/** FR-47/48: close polls at their deadline even if nobody opens them (reads also close lazily). */
+export const closeDuePollsJob = inngest.createFunction(
+  { id: "close-due-polls", triggers: [{ cron: "*/5 * * * *" }] },
+  async () => closeDuePolls(await getDb()),
+);
+
 /** FR-80c: unshared polls (~12h) → personal texts. */
 export const pollShareFallbacks = inngest.createFunction(
   { id: "poll-share-fallbacks", triggers: [{ cron: "15 * * * *" }] },
@@ -60,4 +67,12 @@ export const dailyDigest = inngest.createFunction(
   async () => runDailyDigest(await getDb()),
 );
 
-export const functions = [ideaAdded, savedIdeaAdded, expenseChanged, pollClosingNudges, pollShareFallbacks, dailyDigest];
+export const functions = [
+  ideaAdded,
+  savedIdeaAdded,
+  expenseChanged,
+  closeDuePollsJob,
+  pollClosingNudges,
+  pollShareFallbacks,
+  dailyDigest,
+];

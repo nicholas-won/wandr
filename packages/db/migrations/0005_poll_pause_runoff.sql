@@ -1,7 +1,11 @@
-ALTER TABLE "polls" ADD COLUMN "paused_at" timestamp with time zone;--> statement-breakpoint
-ALTER TABLE "polls" ADD COLUMN "closed_by_member_id" uuid;--> statement-breakpoint
-ALTER TABLE "polls" ADD COLUMN "runoff_of_poll_id" uuid;--> statement-breakpoint
+-- Idempotent: an earlier local build applied this file as 0004_poll_pause_runoff before it was
+-- renumbered after 0004_share_cards. Safe to run on databases that already have these columns.
+ALTER TABLE "polls" ADD COLUMN IF NOT EXISTS "paused_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "polls" ADD COLUMN IF NOT EXISTS "closed_by_member_id" uuid;--> statement-breakpoint
+ALTER TABLE "polls" ADD COLUMN IF NOT EXISTS "runoff_of_poll_id" uuid;--> statement-breakpoint
+ALTER TABLE "polls" DROP CONSTRAINT IF EXISTS "polls_closed_by_member_id_members_id_fk";--> statement-breakpoint
 ALTER TABLE "polls" ADD CONSTRAINT "polls_closed_by_member_id_members_id_fk" FOREIGN KEY ("closed_by_member_id") REFERENCES "public"."members"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "polls" DROP CONSTRAINT IF EXISTS "polls_runoff_of_poll_id_polls_id_fk";--> statement-breakpoint
 ALTER TABLE "polls" ADD CONSTRAINT "polls_runoff_of_poll_id_polls_id_fk" FOREIGN KEY ("runoff_of_poll_id") REFERENCES "public"."polls"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 /**
  * Poll votes (FR-47, S-4, S-6): also reject votes on paused polls and from members who aren't

@@ -4,12 +4,16 @@ import { refresh } from "next/cache";
 import { AuthError, requireFull } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { tripContext } from "@/server/context";
-import { setBachMode, setGuestOfHonor, setIdeaHiddenFrom } from "@/server/surprise";
+import { ExpenseError, setGuestOfHonorInSplits } from "@/server/expenses";
+import { setBachMode, setIdeaHiddenFrom } from "@/server/surprise";
 import type { ActionResult } from "./actions";
 
 function fail(e: unknown, tripId: string): ActionResult {
   if (e instanceof AuthError) return { ok: false, error: "Confirm your number first.", signin: routes.signin(routes.trip(tripId)) };
   if (e instanceof Error && e.message === "not_allowed") return { ok: false, error: "Only organizers can do that." };
+  if (e instanceof ExpenseError) {
+    return { ok: false, error: e.code === "forbidden" ? "Only organizers can do that." : e.message === e.code ? "That didn't work." : e.message };
+  }
   if (e instanceof Error && e.message === "group_only") return { ok: false, error: "Bachelor/bachelorette mode is for groups of 3 or more." };
   console.error(e);
   return { ok: false, error: "Something went wrong. Try again." };
@@ -28,14 +32,19 @@ export async function setIdeaSurpriseAction(tripId: string, ideaId: string, memb
   }
 }
 
-/** FR-90 */
+/** FR-90: one tap marks them and re-splits every unlocked expense; settled ones stay as they are. */
 export async function setGuestOfHonorAction(tripId: string, memberId: string, on: boolean): Promise<ActionResult> {
   try {
     await requireFull();
     const { db, claims } = await tripContext(tripId);
-    await setGuestOfHonor(db, claims, { tripId, memberId, on });
+    const r = await setGuestOfHonorInSplits(db, claims, { tripId, memberId, on });
     refresh();
-    return { ok: true };
+    return {
+      ok: true,
+      message: r.settledUnchanged
+        ? `${r.resplit} expenses re-split. ${r.settledUnchanged} already settled stay as they are.`
+        : undefined,
+    };
   } catch (e) {
     return fail(e, tripId);
   }
