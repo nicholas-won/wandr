@@ -30,6 +30,6 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/s/[kind]/[id
     );
     if (m?.status === "active") return NextResponse.redirect(new URL(trip, request.url));
   }
-  const group = await groupLinkFor(share.tripId);
+  const group = await groupLinkFor(db, share.tripId);
   return NextResponse.redirect(new URL(group ?? routes.signin(trip), request.url));
 }

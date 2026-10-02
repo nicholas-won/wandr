@@ -1,6 +1,7 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
 import { AuthError, requireFull } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
@@ -9,6 +10,7 @@ import { addIdea, addListiclePicks, fixIdea } from "@/server/ideas";
 import { EVENTS } from "@/inngest/client";
 import { enqueue } from "@/server/jobs";
 import { freshLinkFor, inviteMember } from "@/server/invites";
+import { track } from "@/server/analytics";
 import { castVote, getTripView, markNoticeSeen } from "@/server/trips";
 
 export type ActionResult = { ok: true; message?: string } | { ok: false; error: string; signin?: string };
@@ -36,6 +38,8 @@ export async function voteAction(tripId: string, ideaId: string, value: string |
     const v = voteSchema.parse(value);
     const { db, claims, view } = await me(tripId);
     await castVote(db, claims, { tripId, ideaId, memberId: view.me.memberId, value: v });
+    // No vote value in analytics: individual votes never leave the trip (FR-42).
+    after(() => track(db, { name: "vote_cast", tripId, memberId: view.me.memberId, props: { ideaId } }));
     if (view.trip.size === "duo" && !view.me.noticesSeen.includes("duo_votes_visible")) {
       await markNoticeSeen(db, claims, view.me.memberId, "duo_votes_visible");
     }
@@ -56,6 +60,7 @@ export async function addIdeaAction(tripId: string, raw: string): Promise<Action
     }
     const { ideaId } = await addIdea(db, claims, { tripId, memberId: view.me.memberId, raw });
     await enqueue({ name: EVENTS.ideaAdded, data: { ideaId } });
+    after(() => track(db, { name: "idea_added", tripId, memberId: view.me.memberId, props: { ideaId, via: "web" } }));
     refresh();
     return { ok: true };
   } catch (e) {
@@ -65,8 +70,9 @@ export async function addIdeaAction(tripId: string, raw: string): Promise<Action
 
 export async function fixIdeaAction(tripId: string, ideaId: string, title: string): Promise<ActionResult> {
   try {
-    const { db, claims } = await me(tripId);
+    const { db, claims, view } = await me(tripId);
     await fixIdea(db, claims, { ideaId, title });
+    after(() => track(db, { name: "idea_fixed", tripId, memberId: view.me.memberId, props: { ideaId } }));
     refresh();
     return { ok: true };
   } catch (e) {
@@ -100,6 +106,7 @@ export async function inviteAction(tripId: string, name: string, phone: string):
       }[r.error];
       return { ok: false, error: msg };
     }
+    after(() => track(db, { name: "invite_sent", tripId, props: { channel: r.channel } }));
     refresh();
     return {
       ok: true,

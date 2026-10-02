@@ -39,7 +39,8 @@ import {
   sendExpenseTexts,
   sendVoteQuestions,
 } from "../notify";
-import { createShare, getPublicShare, shareMoments } from "../share";
+import { createShare, getPublicShare, groupLinkFor, shareMoments } from "../share";
+import { regenerateGroupLink } from "../membership";
 import { handleTextedIdea, handleTextedReceipt, moveIdeaToLibrary, resolveSavedIdeaJob } from "../text-intake";
 
 const PHONES = { nick: "+12025550101", sam: "+12025550102", ana: "+12025550103", ben: "+12025550104" };
@@ -184,6 +185,7 @@ describe("polls (FR-47, FR-80, FR-80c, N-5)", () => {
 
     // Organizers can't read who was nudged (it would reveal non-voters).
     await expect(withSession(d, { sub: t.nick }, (tx) => tx.select().from(notificationKeys))).rejects.toThrow();
+    await expect(withSession(d, { sub: t.nick }, (tx) => tx.select().from(shareCards))).rejects.toThrow();
   });
 
   it("falls back to personal texts when a poll isn't shared within ~12h (FR-80c)", async () => {
@@ -275,6 +277,16 @@ describe("share cards (FR-80a/b/d/e)", () => {
       ok: false,
       error: "surprise",
     });
+  });
+
+  it("Tap to vote routes outsiders through the live group link (FR-80b), not when invite-list only", async () => {
+    const d = await db();
+    const t = await trip(d, ["sam", "ana"]);
+    expect(await groupLinkFor(d, t.tripId)).toBeNull();
+    const url = await regenerateGroupLink(d, t.nick, t.tripId);
+    expect(await groupLinkFor(d, t.tripId)).toBe(url);
+    await asService(d, (tx) => tx.update(trips).set({ inviteListOnly: true }).where(eq(trips.id, t.tripId)));
+    expect(await groupLinkFor(d, t.tripId)).toBeNull();
   });
 
   it("duo prompts read 'Send to Sam'; solo has none", async () => {

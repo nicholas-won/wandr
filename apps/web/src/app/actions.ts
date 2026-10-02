@@ -1,11 +1,13 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { eq } from "drizzle-orm";
 import { asService, getDb, users } from "@wandr/db";
 import { createProvisionalUser, PROVISIONAL_NAME } from "@/lib/auth/provisional";
 import { getSession, setFullSession } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
+import { track } from "@/server/analytics";
 import { addIdea } from "@/server/ideas";
 import { EVENTS } from "@/inngest/client";
 import { enqueue } from "@/server/jobs";
@@ -43,6 +45,7 @@ export async function startTripAction(formData: FormData) {
     ownerName,
     name: looksLikeIdea || !raw ? DEFAULT_TRIP_NAME : raw,
   });
+  after(() => track(db, { name: "trip_created", tripId, memberId, props: { via: looksLikeIdea ? "paste" : "name" } }));
   if (looksLikeIdea) {
     const { ideaId } = await addIdea(db, { sub: userId }, { tripId, memberId, raw });
     await enqueue({ name: EVENTS.ideaAdded, data: { ideaId } });
@@ -65,7 +68,7 @@ export async function startClassicTripAction(formData: FormData) {
     String(formData.get("name") ?? "").trim() ||
     (destinations.length ? `${destinations.join(" + ")} trip` : DEFAULT_TRIP_NAME);
   const { db, userId, ownerName } = await ensureUser();
-  const { tripId } = await createTrip(db, {
+  const { tripId, memberId } = await createTrip(db, {
     userId,
     ownerName,
     name,
@@ -73,5 +76,8 @@ export async function startClassicTripAction(formData: FormData) {
     startDate: isoDate(formData.get("start")),
     endDate: isoDate(formData.get("end")),
   });
+  after(() =>
+    track(db, { name: "trip_created", tripId, memberId, props: { via: "classic", destinations: destinations.length } }),
+  );
   redirect(routes.trip(tripId));
 }

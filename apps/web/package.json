@@ -12,6 +12,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@sentry/nextjs": "^11.2.0",
     "@wandr/ai": "workspace:*",
     "@wandr/core": "workspace:*",
     "@wandr/db": "workspace:*",

@@ -35,6 +35,7 @@ import {
   type ShareSnapshot,
 } from "@wandr/core/messaging";
 import { appUrl } from "@/lib/env";
+import { getGroupLink } from "./membership";
 import { markPollShared, pollOptionLabels, recentDecisions } from "./notify";
 
 export const shareRoutes = {
@@ -47,14 +48,26 @@ export function isShareKind(k: string): k is ShareKind {
 }
 
 /**
- * The trip's group link (FR-6) for "Tap to vote" from a group chat (FR-80b).
- * TODO(joining slice, FR-6): the group-link token is stored hashed, so the URL can't be rebuilt
- * here. Return the live /j/[token] URL once the joining slice exposes one; until then null, and
- * the share page falls back to sign-in → trip.
+ * The trip's live group link (FR-6) for "Tap to vote" from a group chat (FR-80b): code once,
+ * then approval for unknown numbers (FR-7/8). Null when there is none, it's paused, or the trip
+ * is invite-list only (FR-7) — then the share page falls back to sign-in → trip.
+ * Resolved as the trip owner (getGroupLink is organizer-only); nothing is returned to the
+ * viewer except the URL the organizers already chose to publish.
  */
-export async function groupLinkFor(tripId: string): Promise<string | null> {
-  void tripId;
-  return null;
+export async function groupLinkFor(db: Db, tripId: string): Promise<string | null> {
+  const [owner] = await asService(db, (tx) =>
+    tx
+      .select({ userId: members.userId })
+      .from(members)
+      .where(and(eq(members.tripId, tripId), eq(members.role, "owner"), eq(members.status, "active"))),
+  );
+  if (!owner?.userId) return null;
+  try {
+    const link = await getGroupLink(db, owner.userId, tripId);
+    return link.inviteListOnly ? null : link.url;
+  } catch {
+    return null;
+  }
 }
 
 async function callerMember(tx: Tx, claims: Claims, tripId: string) {
