@@ -32,6 +32,8 @@ export interface IdeaRow {
   lng: number | null;
   createdByMemberId: string | null;
   candidates: unknown;
+  /** Surprise mode (FR-91). Hidden members never receive the row, so this is safe to show. */
+  hiddenFrom: string[];
 }
 
 export interface SourceRow {
@@ -80,6 +82,8 @@ export interface IdeaCard {
   rank: number | null;
   /** FR-24: listicle places, shown only to the person who shared it. */
   listicle: { name: string; summary: string }[] | null;
+  /** FR-91: who this idea is hidden from (e.g. the guest of honor). */
+  hiddenFrom: string[];
 }
 
 export const REVIEW_THRESHOLD = 0.6;
@@ -166,6 +170,7 @@ export function buildIdeaCards(args: {
               summary: c.summary ?? "",
             }))
           : null,
+      hiddenFrom: idea.hiddenFrom ?? [],
       _score: score,
       _createdAt: idea.createdAt,
     };

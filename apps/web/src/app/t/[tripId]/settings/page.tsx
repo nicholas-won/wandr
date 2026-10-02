@@ -6,6 +6,7 @@ import { routes } from "@/lib/routes";
 import { loadTripView, tripContext } from "@/server/context";
 import { defaultSuccessor, getGroupLink, MembershipError, ownershipCandidates } from "@/server/membership";
 import { GroupLinkCard, JoinSettingsForm, TransferOwnership } from "./settings-forms";
+import { BachModeCard } from "@/components/trip/bach-mode-card";
 
 export default async function SettingsPage({ params }: PageProps<"/t/[tripId]/settings">) {
   const { tripId } = await params;
@@ -34,6 +35,15 @@ export default async function SettingsPage({ params }: PageProps<"/t/[tripId]/se
           <JoinSettingsForm tripId={tripId} inviteListOnly={link.inviteListOnly} outsiderName={link.outsiderName ?? ""} />
         </CardContent>
       </Card>
+
+      {/* §6.10: bachelor/bachelorette mode is hidden for solo and duo trips. */}
+      {view.trip.size === "group" ? (
+        <BachModeCard
+          tripId={tripId}
+          on={view.trip.bachMode}
+          people={view.members.map(({ id, displayName, isGuestOfHonor }) => ({ id, displayName, isGuestOfHonor }))}
+        />
+      ) : null}
 
       {isOwner ? (
         <Card>

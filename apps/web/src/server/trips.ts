@@ -95,7 +95,7 @@ export async function createTrip(
 }
 
 export interface TripView {
-  trip: { id: string; name: string; size: TripSize };
+  trip: { id: string; name: string; size: TripSize; bachMode: boolean };
   me: { memberId: string; role: "owner" | "organizer" | "member"; displayName: string; noticesSeen: string[] };
   members: { id: string; displayName: string; role: string; status: string; isGuestOfHonor: boolean }[];
   /** Invited/pending people. RLS returns these rows to organizers only. */
@@ -151,7 +151,7 @@ export async function getTripView(db: Db, claims: Claims, tripId: string): Promi
     const reveals = await ideaReveals(tx, tripId);
 
     return {
-      trip: { id: trip.id, name: trip.name, size },
+      trip: { id: trip.id, name: trip.name, size, bachMode: trip.bachMode },
       me: { memberId: me.id, role: me.role, displayName: me.displayName, noticesSeen: me.noticesSeen },
       members: memberRows
         .filter((m) => m.status === "active")

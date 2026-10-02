@@ -11,6 +11,7 @@ import { loadTripView, tripContext } from "@/server/context";
 import type { IdeaCard as IdeaCardModel } from "@/server/cards";
 import { FeedFilters, FeedPrompts, filterFeed, parseFeedFilter } from "@/components/trip/planning/feed-tools";
 import { IdeaExtras } from "@/components/trip/planning/idea-extras";
+import { SurpriseControl } from "@/components/trip/surprise-control";
 import { myNotMyPicks } from "@/server/planning";
 import { loadPlanning } from "@/server/planning-context";
 
@@ -31,6 +32,12 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
   const cards = filterFeed(view.ideas, filter);
   const notMine = size === "solo" ? new Set<string>() : await myNotMyPicks(db, claims, tripId);
   const isOrganizer = !!plan?.me.isOrganizer;
+  // FR-91 surprise mode: opt-in (P2). Duo: always available (§6.10); group: with bach mode or a guest of honor.
+  const othersForSurprise = view.members
+    .filter((m) => m.id !== view.me.memberId)
+    .map(({ id, displayName, isGuestOfHonor }) => ({ id, displayName, isGuestOfHonor }));
+  const surpriseOn =
+    size === "duo" || (size === "group" && (view.trip.bachMode || view.members.some((m) => m.isGuestOfHonor)));
 
   return (
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8">
@@ -67,14 +74,27 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
                   size={size}
                   extra={
                     card.processing || card.notAPlace ? null : (
-                      <IdeaExtras
-                        tripId={tripId}
-                        ideaId={card.id}
-                        status={card.status}
-                        isOrganizer={isOrganizer}
-                        showNotMyPick={size !== "solo" && card.myVote === "pass" && (card.status === "shortlisted" || card.status === "planned")}
-                        notMyPick={notMine.has(card.id)}
-                      />
+                      <>
+                        <IdeaExtras
+                          tripId={tripId}
+                          ideaId={card.id}
+                          status={card.status}
+                          isOrganizer={isOrganizer}
+                          showNotMyPick={size !== "solo" && card.myVote === "pass" && (card.status === "shortlisted" || card.status === "planned")}
+                          notMyPick={notMine.has(card.id)}
+                        />
+                        {surpriseOn || card.hiddenFrom.length ? (
+                          <div className="border-t px-4 py-2">
+                            <SurpriseControl
+                              tripId={tripId}
+                              ideaId={card.id}
+                              hiddenFrom={card.hiddenFrom}
+                              people={othersForSurprise}
+                              canEdit={isOrganizer && surpriseOn}
+                            />
+                          </div>
+                        ) : null}
+                      </>
                     )
                   }
                 />
