@@ -10,16 +10,19 @@ import { moveIdeaToLibrary, moveSaveToTrip } from "@/server/text-intake";
 
 export type MoveState = { error?: string } | undefined;
 
-/** LB-7: a texted-in idea went to the wrong trip → the sender's library. Needs a code (FR-5). */
-export async function moveIdeaToLibraryAction(ideaId: string): Promise<MoveState> {
+/**
+ * LB-7: a texted-in idea went to the wrong trip → the sender's library. Needs a code (FR-5).
+ * TX7: if others voted on it, the page warns first and passes `confirmVotesLost`.
+ */
+export async function moveIdeaToLibraryAction(ideaId: string, confirmVotesLost = false): Promise<MoveState> {
   const user = await requireFull().catch(() => null);
   if (!user) redirect(routes.signin(`/move/${ideaId}`));
-  const r = await moveIdeaToLibrary(await getDb(), user.userId, ideaId);
+  const r = await moveIdeaToLibrary(await getDb(), user.userId, ideaId, { confirmVotesLost });
   if (!r.ok) {
     return {
       error:
-        r.error === "has_votes"
-          ? "People already voted on it, so it stays in the trip."
+        r.error === "confirm_votes_lost"
+          ? "People voted on it since you opened this page. Reload to see the warning."
           : "We couldn't move that idea.",
     };
   }

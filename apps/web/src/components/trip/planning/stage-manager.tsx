@@ -21,6 +21,8 @@ function actionLabel(a: StageAction, solo: boolean, status: StageStatus): string
   switch (a) {
     case "start_voting":
       return "Start voting";
+    case "back_to_collecting":
+      return "Back to collecting"; // Q12
     case "set":
       return solo ? "Mark set" : status === "collecting" ? "Already decided" : "Lock it in";
     case "mark_not_needed":

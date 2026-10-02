@@ -13,6 +13,8 @@ import type { IdeaCard as IdeaCardModel } from "@/server/cards";
 import { FeedFilters, FeedPrompts, filterFeed, parseFeedFilter } from "@/components/trip/planning/feed-tools";
 import { IdeaExtras } from "@/components/trip/planning/idea-extras";
 import { SurpriseControl } from "@/components/trip/surprise-control";
+import { SizeNotice } from "@/components/trip/people-admin";
+import { getSizeNotices } from "@/server/membership";
 import { myNotMyPicks } from "@/server/planning";
 import { loadPlanning } from "@/server/planning-context";
 
@@ -39,6 +41,7 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
     .map(({ id, displayName, isGuestOfHonor }) => ({ id, displayName, isGuestOfHonor }));
   const surpriseOn =
     size === "duo" || (size === "group" && (view.trip.bachMode || view.members.some((m) => m.isGuestOfHonor)));
+  const sizeNotices = await getSizeNotices(db, claims, tripId);
 
   return (
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8">
@@ -46,6 +49,11 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
         <AutoRefresh active={processing} />
         {canAdd ? <AddIdea tripId={tripId} autoFocus={view.ideas.length === 0} /> : null}
         {canAdd && !view.hasExpenses ? <AddExpenseLink tripId={tripId} /> : null}
+
+        {/* JR13: one-time size-change notices also show on the Ideas feed (FR-T4/T5). */}
+        {sizeNotices?.notices.map((n) => (
+          <SizeNotice key={n} tripId={tripId} memberId={sizeNotices.memberId} notice={n} />
+        ))}
 
         {size === "duo" && !view.me.noticesSeen.includes("duo_votes_visible") ? (
           <p className="rounded-xl bg-secondary px-4 py-3 text-sm text-secondary-foreground">

@@ -1,6 +1,6 @@
 export type JoinStep = "details" | "code" | "joining" | "confirm" | "result";
 
-export type JoinResult = "pending" | "already_pending" | "ask_organizer" | "link_off" | "limited" | "recheck";
+export type JoinResult = "pending" | "already_pending" | "ask_organizer" | "link_off" | "recheck";
 
 export type JoinState = {
   step: JoinStep;

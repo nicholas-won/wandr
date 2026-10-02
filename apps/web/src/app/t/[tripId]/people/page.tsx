@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Avatar } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +10,6 @@ import {
   RestoreButton,
   SizeNotice,
 } from "@/components/trip/people-admin";
-import { routes } from "@/lib/routes";
 import { loadTripView, tripContext } from "@/server/context";
 import { getPeople } from "@/server/membership";
 
@@ -53,10 +51,8 @@ export default async function PeoplePage({ params }: PageProps<"/t/[tripId]/peop
 
         {canManage && people.linkPaused ? (
           <p role="status" className="rounded-xl bg-accent px-4 py-3 text-sm text-accent-foreground">
-            Your group link is paused: too many people asked to join.{" "}
-            <Link href={`${routes.trip(tripId)}/settings`} className="font-semibold underline">
-              Make a new link
-            </Link>
+            Your group link is paused: lots of people are waiting to join. It turns back on by itself once you approve
+            or deny some of the requests below.
           </p>
         ) : null}
 
@@ -98,7 +94,9 @@ export default async function PeoplePage({ params }: PageProps<"/t/[tripId]/peop
                   </span>
                   {m.managedByName ? (
                     <span className="block text-xs text-muted-foreground">
-                      Managed by {m.managedByMe ? "you" : m.managedByName}
+                      {/* JR11: after their manager leaves, organizers act for them. */}
+                      Managed by{" "}
+                      {m.managedByName === "organizers" ? "the organizers" : m.managedByMe ? "you" : m.managedByName}
                     </span>
                   ) : null}
                 </span>
@@ -117,7 +115,7 @@ export default async function PeoplePage({ params }: PageProps<"/t/[tripId]/peop
                 <Avatar name={m.displayName} className="opacity-60" />
                 <span className="flex-1">
                   <span className="font-medium">{m.displayName}</span>
-                  <span className="block text-xs text-muted-foreground">Invited · hasn&apos;t opened yet</span>
+                  <span className="block text-xs text-muted-foreground">Invited · hasn&apos;t accepted yet</span>
                 </span>
                 {isOrganizer ? <ResendLink tripId={tripId} memberId={m.id} name={m.displayName} /> : null}
               </li>

@@ -6,6 +6,8 @@
  */
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import {
+  asService,
+  auditLog,
   expenses,
   ideas,
   members,
@@ -24,6 +26,7 @@ import {
 import { ideaReveals, turnout } from "@wandr/db/reveals";
 import {
   availableStageActions,
+  can,
   crowdedCategoryShortlists,
   reopenImpact,
   shouldShowStops,
@@ -53,12 +56,15 @@ import {
   stopDateWarnings,
   stopLabel,
   stopNights,
+  stopRemovalImpact,
   validateStopDates,
   type DateChangeChoice,
   type NewCitySuggestion,
   type StopDatesError,
 } from "@wandr/core/stop-planning";
 import { googleMapsPlaceUrl, googleMapsRouteUrls } from "@wandr/core/maps";
+import { pollStatus } from "@wandr/core/poll-flow";
+import { closePollsForRemovedStop } from "./polls";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -99,7 +105,7 @@ export class PlanningError extends Error {
       | "not_found"
       | "invalid"
       | "first_stop_name_required"
-      | "has_dependents"
+      | "not_allowed"
       | "last_stop"
       | "vote_first",
     message: string = code,
@@ -527,13 +533,12 @@ export type UpdateStopResult =
       reason: "needs_choices";
       deltaDays: number;
       planItems: { id: string; title: string; dayIndex: number; canShift: boolean }[];
-      polls: { id: string; question: string }[];
     };
 
 /**
- * Edit a Stop's name, dates or rough length. FR-S10: when dates change and planned items or open
- * polls are affected, nothing is saved until the organizer chooses, for each one, "shift" or
- * "unschedule" (items lose their day but stay planned; polls are paused, S-4).
+ * Edit a Stop's name, dates or rough length. FR-S10: when dates change and planned items are
+ * affected, nothing is saved until the organizer chooses, for each one, "shift" or "unschedule"
+ * (items lose their day but stay planned). ST2: the Stop's polls are left alone.
  */
 export async function updateStop(
   db: Db,
@@ -568,18 +573,9 @@ export async function updateStop(
       .select({ id: planItems.id, dayIndex: planItems.dayIndex, ideaId: planItems.ideaId })
       .from(planItems)
       .where(eq(planItems.stopId, stop.id));
-    const openPolls = await tx
-      .select({ id: polls.id, question: polls.question, closesAt: polls.closesAt })
-      .from(polls)
-      .where(and(eq(polls.stopId, stop.id), isNull(polls.closedAt), isNull(polls.pausedAt)));
-    const impact = stopDateChangeImpact(
-      stop,
-      next,
-      items,
-      openPolls.map((p) => ({ id: p.id, closesAt: p.closesAt, open: true })),
-    );
+    const impact = stopDateChangeImpact(stop, next, items);
     let plan: ReturnType<typeof resolveDateChange> | null = null;
-    if (impact && (impact.planItems.length || impact.polls.length)) {
+    if (impact && impact.planItems.length) {
       plan = resolveDateChange(impact, args.choices ?? {});
       if (!plan.ok) {
         const titles = new Map(
@@ -595,7 +591,6 @@ export async function updateStop(
             ...i,
             title: titles.get(items.find((x) => x.id === i.id)?.ideaId ?? "") ?? "Plan item",
           })),
-          polls: impact.polls.map((p) => ({ id: p.id, question: openPolls.find((x) => x.id === p.id)?.question ?? "" })),
         };
       }
     }
@@ -603,20 +598,8 @@ export async function updateStop(
       .update(stops)
       .set({ name, startDate: next.startDate, endDate: next.endDate, nights })
       .where(eq(stops.id, stop.id));
-    if (plan?.ok && impact) {
-      if (plan.unscheduleItemIds.length) await tx.delete(planItems).where(inArray(planItems.id, plan.unscheduleItemIds));
-      if (plan.pausePollIds.length) {
-        await tx.update(polls).set({ pausedAt: new Date() }).where(inArray(polls.id, plan.pausePollIds));
-      }
-      for (const id of plan.shiftPollIds) {
-        const p = openPolls.find((x) => x.id === id);
-        if (p?.closesAt && impact.deltaDays) {
-          await tx
-            .update(polls)
-            .set({ closesAt: new Date(p.closesAt.getTime() + impact.deltaDays * 86_400_000) })
-            .where(eq(polls.id, id));
-        }
-      }
+    if (plan?.ok && plan.unscheduleItemIds.length) {
+      await tx.delete(planItems).where(inArray(planItems.id, plan.unscheduleItemIds));
     }
     return { ok: true };
   });
@@ -640,28 +623,107 @@ export async function moveStop(db: Db, claims: Claims, args: { stopId: string; d
   });
 }
 
+/** ST5 preview, as the organizer sees it (RLS: surprise items hidden from them aren't listed, FR-91). */
+export interface StopRemovalPreview {
+  stopName: string;
+  ideas: number;
+  pollsToClose: { id: string; question: string }[];
+  otherPolls: number;
+  planItems: { id: string; title: string }[];
+  expenses: number;
+}
+
+export type RemoveStopResult = { ok: true } | { ok: false; reason: "confirm"; preview: StopRemovalPreview };
+
 /**
- * S-5: remove a Stop. Its ideas go to Unsorted with votes intact (FK set null). Refused while
- * polls, plan items or expenses are attached, and for the last Stop.
+ * S-5 / ST5: remove a city. Organizers can remove one even with polls, plans or expenses: its
+ * ideas go to Unsorted with votes intact, its open polls close (all its polls are unlinked from
+ * it), its plan items are removed, and expenses stay but no longer point at it (NFR-5). Anything
+ * beyond moving ideas is previewed first; nothing changes until `confirmed`. Never the last Stop.
  */
-export async function removeStop(db: Db, claims: Claims, args: { stopId: string }) {
-  return withSession(db, claims, async (tx) => {
+export async function removeStop(
+  db: Db,
+  claims: Claims,
+  args: { stopId: string; confirmed?: boolean },
+): Promise<RemoveStopResult> {
+  const checked = await withSession(db, claims, async (tx) => {
     const [stop] = await tx.select().from(stops).where(eq(stops.id, args.stopId));
     if (!stop) throw new PlanningError("not_found");
-    await requireOrganizer(tx, claims, stop.tripId);
+    const me = await requireOrganizer(tx, claims, stop.tripId);
     const all = await tx.select({ id: stops.id }).from(stops).where(eq(stops.tripId, stop.tripId));
-    if (all.length <= 1) throw new PlanningError("last_stop");
-    const [p] = await tx.select({ id: polls.id }).from(polls).where(eq(polls.stopId, stop.id)).limit(1);
-    const [pi] = await tx.select({ id: planItems.id }).from(planItems).where(eq(planItems.stopId, stop.id)).limit(1);
-    const [e] = await tx.select({ id: expenses.id }).from(expenses).where(eq(expenses.stopId, stop.id)).limit(1);
-    if (p || pi || e) throw new PlanningError("has_dependents");
-    await tx.delete(stops).where(eq(stops.id, stop.id));
+    // What the organizer can see (RLS), for the preview.
+    const pollRows = await tx
+      .select({
+        id: polls.id,
+        question: polls.question,
+        closedAt: polls.closedAt,
+        closesAt: polls.closesAt,
+        pausedAt: polls.pausedAt,
+        winningOptionId: polls.winningOptionId,
+      })
+      .from(polls)
+      .where(eq(polls.stopId, stop.id));
+    const ideaRows = await tx.select({ id: ideas.id, title: ideas.title }).from(ideas).where(eq(ideas.stopId, stop.id));
+    const planRows = await tx
+      .select({ id: planItems.id, ideaId: planItems.ideaId })
+      .from(planItems)
+      .where(eq(planItems.stopId, stop.id));
+    const expenseRows = await tx.select({ id: expenses.id }).from(expenses).where(eq(expenses.stopId, stop.id));
+    const now = new Date();
+    const impact = stopRemovalImpact({
+      stopCount: all.length,
+      ideaIds: ideaRows.map((i) => i.id),
+      polls: pollRows.map((p) => ({ id: p.id, open: pollStatus(p, now) === "open" || pollStatus(p, now) === "paused" })),
+      planItemIds: planRows.map((p) => p.id),
+      expenseIds: expenseRows.map((e) => e.id),
+    });
+    if (!impact.ok) throw new PlanningError("last_stop");
+    const titleOf = new Map(
+      (await tx.select({ id: ideas.id, title: ideas.title }).from(ideas).where(eq(ideas.tripId, stop.tripId))).map((i) => [
+        i.id,
+        i.title,
+      ]),
+    );
+    const preview: StopRemovalPreview = {
+      stopName: stop.name,
+      ideas: impact.ideasToUnsorted.length,
+      pollsToClose: impact.pollsToClose.map((id) => ({ id, question: pollRows.find((p) => p.id === id)?.question ?? "" })),
+      otherPolls: impact.pollsToUnlink.length - impact.pollsToClose.length,
+      planItems: planRows.map((p) => ({ id: p.id, title: titleOf.get(p.ideaId ?? "") ?? "Plan item" })),
+      expenses: impact.expensesUnlinked.length,
+    };
+    return { stop, me, preview, requiresConfirm: impact.requiresConfirm };
   });
+  if (checked.requiresConfirm && !args.confirmed) return { ok: false, reason: "confirm", preview: checked.preview };
+
+  // Applied as the service after the organizer check above: it must also reach rows RLS hides
+  // from this organizer (surprise polls/expenses, FR-91) and locked expenses (FR-69 guard), and
+  // only unlinks them; no money row changes amount or is deleted (NFR-5).
+  const { stop, me } = checked;
+  await asService(db, async (tx) => {
+    const stopPolls = await tx.select().from(polls).where(eq(polls.stopId, stop.id));
+    await closePollsForRemovedStop(tx, stopPolls, me.memberId);
+    if (stopPolls.length) {
+      await tx.update(polls).set({ stopId: null }).where(inArray(polls.id, stopPolls.map((p) => p.id)));
+    }
+    await tx.update(expenses).set({ stopId: null }).where(eq(expenses.stopId, stop.id));
+    // Plan items and attendance cascade; ideas go to Unsorted (FK set null), votes intact.
+    await tx.delete(stops).where(eq(stops.id, stop.id));
+    await tx.insert(auditLog).values({
+      tripId: stop.tripId,
+      actorMemberId: me.memberId,
+      action: "stop.removed",
+      entity: "stop",
+      entityId: stop.id,
+      data: { name: stop.name, polls: stopPolls.length },
+    });
+  });
+  return { ok: true };
 }
 
 /**
- * FR-S7: mark attendance. `attending: null` clears it back to "assumed" (S-12). Self or a managed
- * member (RLS: verified sessions only).
+ * FR-S7: mark attendance. `attending: null` clears it back to "assumed" (S-12). Self, a managed
+ * member (FR-11, JR11), or, for organizers, anyone (Q13). RLS enforces the same (verified only).
  */
 export async function setAttendance(
   db: Db,
@@ -669,6 +731,29 @@ export async function setAttendance(
   args: { stopId: string; memberId: string; attending: boolean | null },
 ) {
   return withSession(db, claims, async (tx) => {
+    const [stop] = await tx.select({ tripId: stops.tripId }).from(stops).where(eq(stops.id, args.stopId));
+    if (!stop) throw new PlanningError("not_found");
+    const me = await meIn(tx, claims, stop.tripId);
+    if (!me) throw new PlanningError("not_a_member");
+    const rows = await tx
+      .select({ id: members.id, role: members.role, managedBy: members.managedByMemberId, status: members.status })
+      .from(members)
+      .where(eq(members.tripId, stop.tripId));
+    const target = rows.find((r) => r.id === args.memberId);
+    if (!target) throw new PlanningError("not_found");
+    const d = can(
+      { memberId: me.memberId, role: me.role, status: "active", scope: claims.sub ? "full" : "link" },
+      "set_attendance",
+      {
+        target: {
+          memberId: target.id,
+          role: target.role,
+          managedByMemberId: target.managedBy,
+          managerActive: !!target.managedBy && rows.find((r) => r.id === target.managedBy)?.status === "active",
+        },
+      },
+    );
+    if (!d.allowed) throw new PlanningError(d.reason === "organizers_only" ? "organizers_only" : "not_allowed");
     if (args.attending === null) {
       await tx
         .delete(stopAttendance)

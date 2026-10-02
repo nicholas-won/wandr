@@ -4,7 +4,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   asService,
   expenses,
@@ -41,7 +41,7 @@ import {
 } from "../notify";
 import { createShare, getPublicShare, groupLinkFor, shareMoments } from "../share";
 import { regenerateGroupLink } from "../membership";
-import { handleTextedIdea, handleTextedReceipt, moveIdeaToLibrary, resolveSavedIdeaJob } from "../text-intake";
+import { handleTextedIdea, handleTextedReceipt, movableIdea, moveIdeaToLibrary, resolveSavedIdeaJob } from "../text-intake";
 
 const PHONES = { nick: "+12025550101", sam: "+12025550102", ana: "+12025550103", ben: "+12025550104" };
 
@@ -379,19 +379,30 @@ describe("texted-in links and receipts (FR-82/83, FR-L2, LB-7)", () => {
     expect(u.job).toBeNull();
   });
 
-  it("moving to the library is refused once others voted (no silent vote loss)", async () => {
+  it("moving to the library after others voted needs a confirmation; votes don't come along (TX7)", async () => {
     const d = await db();
     const t = await trip(d, ["sam"]);
     const ideaId = await addIdea(d, t.tripId, t.ids.nick!, "Time Out Market");
     await asService(d, (tx) =>
       tx.insert(votes).values({ ideaId, memberId: t.ids.sam!, tripId: t.tripId, value: "must", castInSize: "duo" }),
     );
-    expect(await moveIdeaToLibrary(d, t.nick, ideaId)).toEqual({ ok: false, error: "has_votes" });
-    await asService(d, (tx) => tx.delete(votes).where(and(eq(votes.ideaId, ideaId))));
-    const r = await moveIdeaToLibrary(d, t.nick, ideaId);
+    expect(await movableIdea(d, t.nick, ideaId)).toMatchObject({ othersVoted: true });
+    expect(await moveIdeaToLibrary(d, t.nick, ideaId)).toEqual({ ok: false, error: "confirm_votes_lost" });
+    const r = await moveIdeaToLibrary(d, t.nick, ideaId, { confirmVotesLost: true });
     expect(r.ok).toBe(true);
     expect(await asService(d, (tx) => tx.select().from(ideas))).toHaveLength(0);
+    expect(await asService(d, (tx) => tx.select().from(votes).where(eq(votes.ideaId, ideaId)))).toHaveLength(0);
+    const saves = await asService(d, (tx) => tx.select().from(savedIdeas));
+    expect(saves.map((s) => s.title)).toContain("Time Out Market");
     expect(await moveIdeaToLibrary(d, randomUUID(), ideaId)).toEqual({ ok: false, error: "not_found" });
+  });
+
+  it("an idea nobody else voted on moves without asking", async () => {
+    const d = await db();
+    const t = await trip(d, ["sam"]);
+    const ideaId = await addIdea(d, t.tripId, t.ids.nick!, "Time Out Market");
+    expect(await movableIdea(d, t.nick, ideaId)).toMatchObject({ othersVoted: false });
+    expect((await moveIdeaToLibrary(d, t.nick, ideaId)).ok).toBe(true);
   });
 
   it("stores a texted receipt and hands a draft to the expenses slice", async () => {

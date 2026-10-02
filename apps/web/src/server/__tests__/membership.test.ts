@@ -178,21 +178,17 @@ describe("join requests and approvals (FR-6, FR-8, J-20)", () => {
     );
   });
 
-  it("per-trip request limit (FR-15)", async () => {
+  it("no hourly/daily request limits on the group link (JR6)", async () => {
     const s = await setup();
-    for (let i = 0; i < JOIN_LIMITS.requestsPerTripHour; i++) {
+    for (let i = 0; i < 12; i++) {
       const u = await user(`P${i}`);
       expect((await joinViaGroupLink(d, { userId: u.id, token: s.token, name: `P${i}`, ageConfirmed: true })).kind).toBe(
         "pending",
       );
     }
-    const u = await user("One too many");
-    expect((await joinViaGroupLink(d, { userId: u.id, token: s.token, name: "X", ageConfirmed: true })).kind).toBe(
-      "limited",
-    );
   });
 
-  it("auto-pauses the link at 20 open requests and expires requests after 14 days (J-7)", async () => {
+  it("auto-pauses at 20 open requests and turns back on once they're handled (J-7, JR5)", async () => {
     const s = await setup();
     await asService(d, async (tx) => {
       for (let i = 0; i < JOIN_LIMITS.pendingCap - 1; i++) {
@@ -210,9 +206,23 @@ describe("join requests and approvals (FR-6, FR-8, J-20)", () => {
     const u = await user("Twentieth");
     const r = await joinViaGroupLink(d, { userId: u.id, token: s.token, name: "T", ageConfirmed: true });
     expect(r).toMatchObject({ kind: "pending", paused: true });
-    expect(await inspectGroupLink(d, s.token)).toBeNull();
-    expect(await getGroupLink(d, s.owner.id, s.tripId)).toMatchObject({ url: null, paused: true });
+    expect(await inspectGroupLink(d, s.token)).toMatchObject({ paused: true });
+    expect(await getGroupLink(d, s.owner.id, s.tripId)).toMatchObject({ paused: true });
     expect((await getPeople(d, { sub: s.owner.id }, s.tripId))!.linkPaused).toBe(true);
+    const late = await user("Late");
+    expect((await joinViaGroupLink(d, { userId: late.id, token: s.token, name: "L", ageConfirmed: true })).kind).toBe(
+      "link_off",
+    );
+
+    // The organizer handles one request: the same link works again, no new link needed (JR5).
+    if (r.kind !== "pending") throw new Error();
+    await decideJoinRequest(d, { userId: s.owner.id, tripId: s.tripId, memberId: r.memberId, approve: false });
+    expect(await inspectGroupLink(d, s.token)).toMatchObject({ paused: false });
+    expect(await getGroupLink(d, s.owner.id, s.tripId)).toMatchObject({ paused: false, url: expect.stringContaining(s.token) });
+    expect((await getPeople(d, { sub: s.owner.id }, s.tripId))!.linkPaused).toBe(false);
+    expect((await joinViaGroupLink(d, { userId: late.id, token: s.token, name: "L", ageConfirmed: true })).kind).toBe(
+      "pending",
+    );
   });
 
   it("texts organizers a Y/N question (FR-8)", async () => {

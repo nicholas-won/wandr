@@ -5,7 +5,11 @@ import { requireFullOrRedirect } from "@/lib/auth/session";
 import { movableIdea } from "@/server/text-intake";
 import { MoveButton } from "../move-button";
 
-/** LB-7: "Saved to Lisbon trip · move to library?" from a texted-in link. */
+/**
+ * LB-7: "Saved to Lisbon trip · move to library?" from a texted-in link.
+ * TX7: if others already voted on it, it can still move, with a clear warning that their votes
+ * are lost (the library copy never carries votes).
+ */
 export default async function MoveIdeaPage({ params }: PageProps<"/move/[ideaId]">) {
   const { ideaId } = await params;
   const user = await requireFullOrRedirect(`/move/${ideaId}`);
@@ -21,7 +25,21 @@ export default async function MoveIdeaPage({ params }: PageProps<"/move/[ideaId]
           library to save it for someday instead.
         </p>
       </div>
-      <MoveButton kind="idea" id={ideaId} label="Move to my library" />
+      {idea.othersVoted ? (
+        <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm">
+          <p className="font-semibold">People already voted on this.</p>
+          <p className="mt-1 text-muted-foreground">
+            Moving it takes it out of the trip and their votes are lost. Your library copy won&apos;t have any votes.
+          </p>
+        </div>
+      ) : null}
+      <MoveButton
+        kind="idea"
+        id={ideaId}
+        label={idea.othersVoted ? "Move anyway, votes will be lost" : "Move to my library"}
+        variant={idea.othersVoted ? "destructive" : "primary"}
+        confirmVotesLost={idea.othersVoted}
+      />
     </main>
   );
 }
