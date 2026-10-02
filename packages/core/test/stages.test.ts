@@ -27,6 +27,11 @@ describe("transitionStage (FR-S1/S2/S4)", () => {
     ["collecting", "reopen", "group", null],
     ["voting", "restore", "group", null],
     ["not_needed", "set", "group", null],
+    // Q12: voting can go back to collecting
+    ["voting", "back_to_collecting", "group", "collecting"],
+    ["voting", "back_to_collecting", "duo", "collecting"],
+    ["collecting", "back_to_collecting", "group", null],
+    ["set", "back_to_collecting", "group", null],
     // solo: simple toggles, no voting step
     ["collecting", "set", "solo", "set"],
     ["set", "reopen", "solo", "collecting"],
@@ -56,6 +61,7 @@ describe("transitionStage (FR-S1/S2/S4)", () => {
   it("availableStageActions", () => {
     expect(availableStageActions("collecting", "group")).toEqual(["start_voting", "set", "mark_not_needed"]);
     expect(availableStageActions("collecting", "solo")).toEqual(["set", "mark_not_needed"]);
+    expect(availableStageActions("voting", "group")).toEqual(["back_to_collecting", "set", "mark_not_needed"]);
     expect(availableStageActions("set", "group")).toEqual(["reopen"]);
     expect(availableStageActions("not_needed", "group")).toEqual(["restore"]);
   });

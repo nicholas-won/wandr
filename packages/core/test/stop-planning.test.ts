@@ -15,6 +15,7 @@ import {
   stopDayCount,
   stopLabel,
   stopNights,
+  stopRemovalImpact,
   validateStopDates,
   type CityIdea,
 } from "../src/stop-planning";
@@ -149,40 +150,58 @@ describe("Stop dates (FR-S10, S-3, S-4, S-17)", () => {
     { id: "p0", dayIndex: 0 },
     { id: "p3", dayIndex: 3 },
   ];
-  const polls = [
-    { id: "q1", closesAt: null, open: true },
-    { id: "q2", closesAt: null, open: false },
-  ];
-
   it("no change → null", () => {
-    expect(stopDateChangeImpact(before, { ...before }, items, polls)).toBeNull();
+    expect(stopDateChangeImpact(before, { ...before }, items)).toBeNull();
   });
 
-  it("moving the start lists every placed item and open poll", () => {
-    const imp = stopDateChangeImpact(before, { startDate: "2027-04-05", endDate: "2027-04-08", nights: 3 }, items, polls)!;
+  it("moving the start lists every placed item; polls are left alone (ST2)", () => {
+    const imp = stopDateChangeImpact(before, { startDate: "2027-04-05", endDate: "2027-04-08", nights: 3 }, items)!;
     expect(imp.deltaDays).toBe(2);
     expect(imp.planItems).toEqual([
       { id: "p0", dayIndex: 0, canShift: true },
       { id: "p3", dayIndex: 3, canShift: true },
     ]);
-    expect(imp.polls).toEqual([{ id: "q1" }]);
+    expect(imp).not.toHaveProperty("polls");
   });
 
   it("shortening lists only items past the new last day, which can't shift", () => {
-    const imp = stopDateChangeImpact(before, { startDate: "2027-04-03", endDate: "2027-04-04", nights: 1 }, items, [])!;
+    const imp = stopDateChangeImpact(before, { startDate: "2027-04-03", endDate: "2027-04-04", nights: 1 }, items)!;
     expect(imp.deltaDays).toBe(0);
     expect(imp.planItems).toEqual([{ id: "p3", dayIndex: 3, canShift: false }]);
   });
 
   it("requires a choice for every item and rejects impossible shifts", () => {
-    const imp = stopDateChangeImpact(before, { startDate: "2027-04-04", endDate: "2027-04-05", nights: 1 }, items, polls)!;
-    expect(resolveDateChange(imp, {})).toEqual({ ok: false, missing: ["p0", "p3", "q1"], invalid: [] });
-    expect(resolveDateChange(imp, { p0: "shift", p3: "shift", q1: "shift" })).toMatchObject({ ok: false, invalid: ["p3"] });
-    expect(resolveDateChange(imp, { p0: "shift", p3: "unschedule", q1: "unschedule" })).toEqual({
+    const imp = stopDateChangeImpact(before, { startDate: "2027-04-04", endDate: "2027-04-05", nights: 1 }, items)!;
+    expect(resolveDateChange(imp, {})).toEqual({ ok: false, missing: ["p0", "p3"], invalid: [] });
+    expect(resolveDateChange(imp, { p0: "shift", p3: "shift" })).toMatchObject({ ok: false, invalid: ["p3"] });
+    expect(resolveDateChange(imp, { p0: "shift", p3: "unschedule" })).toEqual({ ok: true, unscheduleItemIds: ["p3"] });
+  });
+
+  it("removing a city (ST5): ideas to Unsorted, open polls close, plan items go, expenses unlink", () => {
+    expect(stopRemovalImpact({ stopCount: 1, ideaIds: [], polls: [], planItemIds: [], expenseIds: [] })).toEqual({
+      ok: false,
+      reason: "last_stop",
+    });
+    const quiet = stopRemovalImpact({ stopCount: 2, ideaIds: ["i1"], polls: [], planItemIds: [], expenseIds: [] });
+    expect(quiet).toMatchObject({ ok: true, ideasToUnsorted: ["i1"], requiresConfirm: false });
+    const busy = stopRemovalImpact({
+      stopCount: 3,
+      ideaIds: ["i1", "i2"],
+      polls: [
+        { id: "q1", open: true },
+        { id: "q2", open: false },
+      ],
+      planItemIds: ["p1"],
+      expenseIds: ["e1"],
+    });
+    expect(busy).toEqual({
       ok: true,
-      unscheduleItemIds: ["p3"],
-      shiftPollIds: [],
-      pausePollIds: ["q1"],
+      ideasToUnsorted: ["i1", "i2"],
+      pollsToClose: ["q1"],
+      pollsToUnlink: ["q1", "q2"],
+      planItemsRemoved: ["p1"],
+      expensesUnlinked: ["e1"],
+      requiresConfirm: true,
     });
   });
 

@@ -12,6 +12,8 @@ import { closesLabel } from "./polls";
 export type StageAction =
   /** collecting → voting (not in solo). */
   | "start_voting"
+  /** voting → collecting (Q12: back to gathering ideas; votes and polls are kept as they are). */
+  | "back_to_collecting"
   /** collecting|voting → set. From collecting = "already decided" (FR-S2). */
   | "set"
   /** collecting|voting → not_needed (FR-S2). */
@@ -50,6 +52,8 @@ export function transitionStage(
     case "start_voting":
       if (size === "solo") return { ok: false, reason: "no_voting_in_solo" };
       return current === "collecting" ? ok("voting") : bad;
+    case "back_to_collecting":
+      return current === "voting" ? ok("collecting") : bad;
     case "set":
       if (current !== "collecting" && current !== "voting") return bad;
       return ok("set", size !== "solo" && votesCast === 0 ? { warning: "no_votes_yet" } : {});
@@ -65,7 +69,7 @@ export function transitionStage(
 
 /** Actions available from a status at a size (for rendering organizer menus). */
 export function availableStageActions(current: StageStatus, size: TripSize): StageAction[] {
-  const all: StageAction[] = ["start_voting", "set", "mark_not_needed", "reopen", "restore"];
+  const all: StageAction[] = ["start_voting", "back_to_collecting", "set", "mark_not_needed", "reopen", "restore"];
   return all.filter((a) => transitionStage(current, a, size).ok);
 }
 
