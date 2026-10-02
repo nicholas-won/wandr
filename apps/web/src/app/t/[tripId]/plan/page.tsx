@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarDays, Sparkles } from "lucide-react";
-import { optimizer } from "@wandr/core";
+import { forecastSummary, optimizer, rainLikely, weatherLabel } from "@wandr/core";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { routes } from "@/lib/routes";
 import { tripContext } from "@/server/context";
-import { getPlanContext, isPlanOutOfDate, planHints, previewPlan } from "@/server/plan";
-import { ApplyPlan, ItemControls } from "./plan-controls";
+import { getPlanContext, isPlanOutOfDate, planHints, previewPlan, stopLocation, unplacedItems } from "@/server/plan";
+import { forecastFor } from "@/server/weather";
+import { AddToPlan, ApplyPlan, ItemControls } from "./plan-controls";
 import { PlanMapRail, type PlanMapDay } from "@/components/map/plan-map-rail";
 
 const MODE: Record<string, string> = { walk: "🚶", transit: "🚇", drive: "🚗" };
@@ -81,6 +82,19 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
       .sort((a, b) => (a.startMinute ?? 9999) - (b.startMinute ?? 9999)),
   );
   const dates = typeof ctx.input.stop.days === "number" ? [] : ctx.input.stop.days;
+  const forecast = await forecastFor(stopLocation(ctx), dates);
+  const unplaced = unplacedItems(ctx);
+  const hasLodging = !!ctx.input.stop.lodging;
+  const dayLabels = Array.from({ length: dayCount }, (_, d) => dayLabel(d, dates[d] ?? null));
+  // FR-O11: rain likely on a day with outdoor plans.
+  const OUTDOOR = new Set(["sight", "activity"]);
+  const kind = new Map(ctx.input.items.map((i) => [i.id, i.category]));
+  const rainHints = days.flatMap((items, d) => {
+    const f = dates[d] ? forecast.get(dates[d]!) : undefined;
+    if (!f) return [];
+    const outdoor = items.some((it) => it.ideaId && OUTDOOR.has(kind.get(it.ideaId) ?? ""));
+    return f && rainLikely(f) && outdoor ? [`Rain likely on ${dayLabels[d]}: consider swapping in something indoors.`] : [];
+  });
 
   return (
     <div className={RAIL_GRID}>
@@ -95,19 +109,49 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
           <Sparkles aria-hidden /> {ctx.current.items.length ? "Re-arrange my days" : "Arrange my days"}
         </Link>
       ) : null}
-      {hints.length ? (
+      {hints.length || rainHints.length ? (
         <ul className="space-y-1 rounded-xl border bg-card p-3 text-sm" aria-label="Heads up">
           {hints.map((h, i) => (
             <li key={i}>⚠️ {h.detail}</li>
           ))}
+          {rainHints.map((h, i) => (
+            <li key={`rain-${i}`}>🌧️ {h}</li>
+          ))}
         </ul>
       ) : null}
-      {ctx.current.items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{ctx.input.items.length} ideas ready to arrange.</p>
-      ) : (
+      {unplaced.length && ctx.canApply ? (
+        <section aria-labelledby="unplaced-h" className="space-y-2 rounded-xl border border-dashed p-4">
+          <h2 id="unplaced-h" className="font-display text-lg font-bold">
+            Not on the plan yet
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Put any of these on a day yourself, or let &ldquo;Arrange my days&rdquo; place them.
+          </p>
+          <ul className="divide-y">
+            {unplaced.map((i) => (
+              <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span className="font-semibold">
+                  {i.title}
+                  {i.status === "suggested" ? <Badge className="ml-2" variant="accent">must-do</Badge> : null}
+                </span>
+                <AddToPlan tripId={tripId} stopId={ctx.stop.id} ideaId={i.id} dayLabels={dayLabels} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {(
         days.map((items, d) => (
           <section key={d} className="space-y-2">
-            <h2 className="font-display text-lg font-bold">{dayLabel(d, dates[d] ?? null)}</h2>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="font-display text-lg font-bold">{dayLabel(d, dates[d] ?? null)}</h2>
+              {dates[d] && forecast.get(dates[d]!) ? (
+                <span className="text-sm text-muted-foreground" title={weatherLabel(forecast.get(dates[d]!)!.code).label}>
+                  {forecastSummary(forecast.get(dates[d]!)!)}
+                </span>
+              ) : null}
+            </div>
+            {hasLodging && d === 0 ? <p className="text-xs font-semibold text-secondary-foreground">🛏️ Check in from 3pm</p> : null}
             {items.length === 0 ? (
               <p className="text-sm text-muted-foreground">Free day</p>
             ) : (
@@ -139,6 +183,9 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
                 ))}
               </ol>
             )}
+            {hasLodging && d === dayCount - 1 && dayCount > 1 ? (
+              <p className="text-xs font-semibold text-secondary-foreground">🧳 Check out by 11am</p>
+            ) : null}
           </section>
         ))
       )}

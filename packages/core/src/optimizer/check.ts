@@ -190,7 +190,11 @@ export function checkPlan(
       if (total.activity + total.meal + total.night > worst.activity + worst.meal + worst.night)
         worst = total;
     }
-    if (worst.activity > caps.activities || worst.meal > caps.meals || worst.night > caps.night) {
+    // D70 / FR-O6: "3 activities and 2 meals; that's a packed day" is exactly the balanced cap, so a
+    // day is packed once it fills both the activity and meal limits, or goes over any limit.
+    const atLimit = worst.activity >= caps.activities && worst.meal >= caps.meals;
+    const over = worst.activity > caps.activities || worst.meal > caps.meals || worst.night > caps.night;
+    if (atLimit || over) {
       warnings.push({
         code: "packed_day",
         dayIndex: day.dayIndex,
