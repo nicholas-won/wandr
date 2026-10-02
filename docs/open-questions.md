@@ -86,3 +86,22 @@ Decided by the founder in chat; propose adding to §13 as D64:
 | Q42 | AI cost per import for the cost dashboard | $0.03, env `COST_AI_IMPORT_MICROS` until real invoices are wired |
 | Q43 | Booking decision gate (§11) sample size | "Insufficient data" below 20 decided Stays |
 | Q44 | Who sees /admin | User ids in `ADMIN_USER_IDS` |
+
+## Joining and roles (slice 3)
+
+| # | Question | Provisional default |
+|---|---|---|
+| JR1 | FR-9 "write it off": who absorbs the forgiven balance? | The people on the other side of the balance (those owed, or those owing), in proportion to their own balance. "Split across the group" spreads it evenly over active members instead |
+| JR2 | M-4 leaving with an open balance: must it be resolved like removal (FR-9)? | No. The balance is shown first and stays on the ledger under "former member" (M-1/M-2). Only organizer removal requires a resolution |
+| JR3 | Owner leaving (J-10) | Must transfer ownership first; "Leave trip" refuses for the owner |
+| JR4 | Denied or removed people using the group link again | "Ask the organizer to add you"; no new request. Organizers can restore (30 days) or re-invite |
+| JR5 | J-7 auto-pause: does the link resume by itself once requests are cleared? | No. At 20 open requests the link turns off; the organizer makes a new link (the old one has clearly spread) |
+| JR6 | Per-trip join request limits (FR-15) | 10 per hour, 30 per day through the group link |
+| JR7 | J-8 "That's not me" | A separate pending request under the typed name, flagged "says they're not Jess"; the invite row stays as is |
+| JR8 | Name after "Yes, I'm Jess" | Keeps the organizer's invite-list name |
+| JR9 | A verified person whose number/email doesn't match the invite opens someone's personal link | No account link (that would turn a forwarded link into full access). Identity attaches only on a matching phone/email |
+| JR10 | Balances shown to an organizer during removal include surprise expenses hidden from them (FR-91) | Included, since removal must resolve the true balance. Could reveal a hidden amount; confirm |
+| JR11 | Managed members whose manager is removed or leaves | Unchanged (still active, no one acts for them) |
+| JR12 | Organizer alert when the link auto-pauses; "Jess joined" undo (J-8) | In-app banner and audit entries only; no text yet |
+| JR13 | FR-T4/T5 notices: People page only, or also the Ideas feed? | People page for now; `SizeNotice` is reusable for the feed |
+| JR14 | Who may promote/demote organizers | Owner and organizers (FR-2 "everything except removing the owner"); nobody can demote the owner |
