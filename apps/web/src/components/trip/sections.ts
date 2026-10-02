@@ -17,6 +17,8 @@ export const TRIP_SECTIONS: TripSection[] = [
   { segment: "", label: "Ideas" },
   { segment: "plan", label: "Plan" },
   { segment: "people", label: "People", soloLabel: "Invite" },
+  // FR-80a group-chat sharing; no group features in solo trips (§6.10).
+  { segment: "share", label: "Share", show: (v) => v.trip.size !== "solo" },
 ];
 
 export function visibleSections(view: TripView): TripSection[] {

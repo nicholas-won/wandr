@@ -42,6 +42,13 @@ const schema = z.object({
   // CAPTCHA (Cloudflare Turnstile) before repeated code requests (FR-15, J-16)
   TURNSTILE_SECRET_KEY: optionalString,
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: optionalString,
+
+  // Background jobs (Inngest). Unset → jobs run in-process via after() (local dev).
+  INNGEST_EVENT_KEY: optionalString,
+  INNGEST_SIGNING_KEY: optionalString,
+  // Supabase Storage for texted receipt photos. Unset → saved under .data/media (dev only).
+  SUPABASE_URL: optionalString,
+  SUPABASE_SERVICE_ROLE_KEY: optionalString,
 });
 
 export type Env = z.infer<typeof schema>;

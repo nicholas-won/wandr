@@ -1,13 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { after } from "next/server";
 import { eq } from "drizzle-orm";
 import { asService, getDb, users } from "@wandr/db";
 import { createProvisionalUser, PROVISIONAL_NAME } from "@/lib/auth/provisional";
 import { getSession, setFullSession } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
-import { addIdea, resolveIdeaJob } from "@/server/ideas";
+import { addIdea } from "@/server/ideas";
+import { EVENTS } from "@/inngest/client";
+import { enqueue } from "@/server/jobs";
 import { createTrip, DEFAULT_TRIP_NAME } from "@/server/trips";
 
 /**
@@ -44,7 +45,7 @@ export async function startTripAction(formData: FormData) {
   });
   if (looksLikeIdea) {
     const { ideaId } = await addIdea(db, { sub: userId }, { tripId, memberId, raw });
-    after(() => resolveIdeaJob(db, ideaId));
+    await enqueue({ name: EVENTS.ideaAdded, data: { ideaId } });
   }
   redirect(routes.trip(tripId));
 }
