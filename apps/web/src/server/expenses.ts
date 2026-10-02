@@ -919,8 +919,9 @@ async function recomputeAsService(db: Db, tripId: string, expenseId: string): Pr
  * One tap: the guest of honor is excluded from every UNLOCKED split and their share spreads
  * across the rest. Settled (locked) expenses are left as they are and counted in the result so
  * the organizer can correct them if they want (FR-69). Organizers only; group trips only.
+ * (surprise.ts `setGuestOfHonor` only flips the flag; call `resplitForGuestsOfHonor` after it.)
  */
-export async function setGuestOfHonor(
+export async function setGuestOfHonorInSplits(
   db: Db,
   claims: Claims,
   input: { tripId: string; memberId: string; on: boolean },
@@ -936,25 +937,48 @@ export async function setGuestOfHonor(
     if (input.on) goh.add(target.id);
     else goh.delete(target.id);
     if (goh.size >= activeIds(ctx).length) throw new ExpenseError("invalid", "Someone has to pay.");
-    const rows = await tx
-      .select()
-      .from(expenses)
-      .where(and(eq(expenses.tripId, ctx.tripId), isNull(expenses.deletedAt), isNull(expenses.refundOfExpenseId)));
-    let resplit = 0;
-    let settledUnchanged = 0;
-    for (const e of rows) {
-      if (e.splitMethod === "just_me") continue;
-      const involved = (configOf(e).participants ?? []).includes(target.id) || (await sharesOf(tx, e.id)).some((s) => s.memberId === target.id);
-      if (!involved) continue;
-      if (e.lockedAt) {
-        settledUnchanged++;
-        continue;
-      }
-      await recomputeStoredShares(tx, e, [...goh]);
-      resplit++;
-    }
-    return { resplit, settledUnchanged };
+    return resplitAll(tx, ctx, goh, target.id);
   });
+}
+
+/** Re-split every unlocked expense with the trip's current guest-of-honor flags (FR-90). Organizers only. */
+export async function resplitForGuestsOfHonor(
+  db: Db,
+  claims: Claims,
+  tripId: string,
+): Promise<{ resplit: number; settledUnchanged: number }> {
+  return withSession(db, claims, async (tx) => {
+    const ctx = await loadCtx(tx, claims, tripId);
+    if (!ctx.isOrganizer) throw new ExpenseError("forbidden");
+    return resplitAll(tx, ctx, new Set(gohIds(ctx)), null);
+  });
+}
+
+async function resplitAll(tx: Tx, ctx: Ctx, goh: Set<string>, onlyInvolving: string | null) {
+  const rows = await tx
+    .select()
+    .from(expenses)
+    .where(and(eq(expenses.tripId, ctx.tripId), isNull(expenses.deletedAt), isNull(expenses.refundOfExpenseId)));
+  let resplit = 0;
+  let settledUnchanged = 0;
+  for (const e of rows) {
+    if (e.splitMethod === "just_me") continue;
+    if (onlyInvolving) {
+      const items = await loadItems(tx, e.id);
+      const involved =
+        (configOf(e).participants ?? []).includes(onlyInvolving) ||
+        items.some((i) => i.claims.some((c) => c.memberId === onlyInvolving)) ||
+        (await sharesOf(tx, e.id)).some((s) => s.memberId === onlyInvolving);
+      if (!involved) continue;
+    }
+    if (e.lockedAt) {
+      settledUnchanged++;
+      continue;
+    }
+    await recomputeStoredShares(tx, e, [...goh]);
+    resplit++;
+  }
+  return { resplit, settledUnchanged };
 }
 
 // ---------------------------------------------------------------------------

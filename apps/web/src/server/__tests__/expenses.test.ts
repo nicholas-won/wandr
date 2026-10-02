@@ -35,7 +35,7 @@ import {
   setAbsorbed,
   setBudgetCheckIn,
   setClaim,
-  setGuestOfHonor,
+  setGuestOfHonorInSplits,
   updateExpense,
 } from "../expenses";
 import { createReceiptUpload, getReceiptUpload, openReceiptImage, readReceiptJob } from "../receipts";
@@ -274,14 +274,14 @@ describe("group", () => {
     const s = await setup(["Olivia", "Ben", "Cat", "Dee"]);
     const { Olivia, Ben, Dee } = s.p as Record<string, Person>;
     const id = await okId(add(s.d, Olivia!, s.tripId, { totalMinor: 1200 }));
-    await expect(setGuestOfHonor(s.d, Ben!.claims, { tripId: s.tripId, memberId: Dee!.memberId, on: true })).rejects.toThrow(/organizers/);
-    const r = await setGuestOfHonor(s.d, Olivia!.claims, { tripId: s.tripId, memberId: Dee!.memberId, on: true });
+    await expect(setGuestOfHonorInSplits(s.d, Ben!.claims, { tripId: s.tripId, memberId: Dee!.memberId, on: true })).rejects.toThrow(/organizers/);
+    const r = await setGuestOfHonorInSplits(s.d, Olivia!.claims, { tripId: s.tripId, memberId: Dee!.memberId, on: true });
     expect(r).toEqual({ resplit: 1, settledUnchanged: 0 });
     let det = (await getExpenseDetail(s.d, Olivia!.claims, s.tripId, id))!;
     expect(det.shares.map((x) => x.shareMinor)).toEqual([400, 400, 400]);
     expect(det.shares.some((x) => x.memberId === Dee!.memberId)).toBe(false);
     // New expenses exclude them too; turning it off restores them.
-    await setGuestOfHonor(s.d, Olivia!.claims, { tripId: s.tripId, memberId: Dee!.memberId, on: false });
+    await setGuestOfHonorInSplits(s.d, Olivia!.claims, { tripId: s.tripId, memberId: Dee!.memberId, on: false });
     det = (await getExpenseDetail(s.d, Olivia!.claims, s.tripId, id))!;
     expect(det.shares).toHaveLength(4);
   });
