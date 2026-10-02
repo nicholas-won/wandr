@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, MapPin } from "lucide-react";
+import { IdeaVisual } from "@/components/ideas/idea-visual";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { CATEGORY_EMOJI } from "./format";
+import type { CardVisualFields } from "@/lib/idea-visual";
 
-export interface SaveCardData {
+export interface SaveCardData extends Partial<CardVisualFields> {
   id: string;
   title: string;
   summary: string | null;
@@ -52,18 +53,29 @@ export function SaveCard({ save, href, className }: { save: SaveCardData; href?:
     save.title
   );
   return (
-    <Card className={cn("relative flex gap-3 p-4", className)}>
-      {save.thumbnailUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element -- remote, untrusted hosts; no optimizer
-        <img src={save.thumbnailUrl} alt="" referrerPolicy="no-referrer" className="size-16 shrink-0 rounded-lg object-cover" />
-      ) : (
-        <div aria-hidden className="grid size-16 shrink-0 place-items-center rounded-lg bg-muted text-2xl">
-          {CATEGORY_EMOJI[category] ?? "✨"}
-        </div>
-      )}
-      <div className="min-w-0 flex-1">
+    <Card className={cn("relative overflow-hidden", className)}>
+      <IdeaVisual
+        title={save.title}
+        category={category}
+        photo={save.photo}
+        photoPrime={save.photoPrime}
+        thumbnailUrl={save.thumbnailUrl}
+        ratio="short"
+      />
+      <div className="min-w-0 p-4">
         <h3 className="font-display text-base font-bold leading-tight">{title}</h3>
-        {save.summary ? <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{save.summary}</p> : null}
+        {save.locationLabel ? (
+          <p className="mt-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+            <MapPin className="size-3.5 shrink-0 text-primary" aria-hidden />
+            <span className="truncate">
+              <span className="sr-only">Filed under </span>
+              {save.locationLabel}
+            </span>
+          </p>
+        ) : null}
+        {(save.blurb ?? save.summary) ? (
+          <p className="mt-2 line-clamp-3 text-sm leading-snug">{save.blurb ?? save.summary}</p>
+        ) : null}
         <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
           {save.permanentlyClosed ? <Badge variant="pass">Permanently closed</Badge> : null}
           {save.extraction === "needs_review" ? <Badge variant="accent">Is this right?</Badge> : null}
