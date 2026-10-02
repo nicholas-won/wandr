@@ -828,7 +828,7 @@ Analysis:
 | D59 | Plan optimization | In the POC: "Arrange my days" suggests a day-by-day order; the user previews, tweaks and locks. Considers geography, hours and fixed times, meals and pace, priority and attendance (weather is a stretch) |
 | D50 | Collection fees | No fee for collecting money. "Collect for the house" is free, tracked through Venmo/Zelle links |
 | D49 | Message channels | Push for app users. Group-chat share cards (free) for group news. SMS only for codes, invites, money and personal nudges. Email as a backup. No web push |
-| D48 | Map provider | Decide at build time: start on Google within the free tier, switch the map display if volume justifies it |
+| D48 | Map provider | Decide at build time: start on Google within the free tier, switch the map display if volume justifies it. **Built (2 Oct 2026):** Google Maps JS when a key is set; otherwise MapLibre with free OpenFreeMap tiles (attribution required, no SLA), falling back to an accessible list |
 | D46 | Product principle | Ease of use comes first; features appear only when needed (§2a) |
 | D44 | Defaults | All recommended defaults confirmed (owner succession, group link with approval, managed members, age 13+, changeable votes, budget band, one open text question, separate code number) |
 

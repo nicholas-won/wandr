@@ -78,6 +78,7 @@ export default async function LibraryPage({ searchParams }: PageProps<"/library"
               lng: s.lng,
               placeId: s.placeId,
               group: s.regionOrCityOverride ?? s.regionOrCity ?? countryName(s.countryOverride ?? s.country) ?? "Not sorted yet",
+              category: s.categoryOverride ?? s.category,
               href: libraryRoutes.save(s.id),
             }))}
         />

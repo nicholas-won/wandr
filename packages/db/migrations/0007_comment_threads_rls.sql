@@ -10,6 +10,7 @@
 --     cleared in the DB, so other members can never read it back. Undo restores the body.
 -- RLS policies are unchanged: personal-link sessions can read threads but not write (FR-5).
 
+alter table public.comments drop constraint if exists comments_body_len;
 alter table public.comments
   add constraint comments_body_len check (char_length(body) <= 2000);
 

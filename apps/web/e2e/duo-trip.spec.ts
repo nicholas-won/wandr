@@ -5,9 +5,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
 async function startTrip(page: Page) {
-  // D64: the website hands off to one focused setup step at /start.
-  await page.goto("/start");
-  const form = page.locator("form").filter({ has: page.locator('input[name="destinations"]') }).first();
+  // Website → app handoff (D64): the call to action opens the /start setup step.
+  await page.goto("/");
+  await page.getByRole("link", { name: /Start planning/ }).first().click();
+  await expect(page).toHaveURL(/\/start/);
+  const form = page.locator("form").filter({ has: page.locator('input[name="destinations"]') });
   await form.locator('input[name="destinations"]').fill("Lisbon");
   await form.locator('input[name="name"]').fill("Nick & Sam");
   await form.getByRole("button", { name: "Create trip" }).click();
