@@ -40,7 +40,7 @@ export function Landing({ appUser = false }: { appUser?: boolean }) {
             The group chat that <span className="text-primary">actually decides.</span>
           </h1>
           <p className="max-w-xl text-lg text-muted-foreground lg:text-xl">
-            Drop the TikToks. Vote by text. Split the bill. {APP_NAME} turns every link your friends share into a
+            Drop the TikToks. Vote from one link. Split the bill. {APP_NAME} turns every link your friends share into a
             real place, gets everyone&apos;s vote, and keeps the plan and the money straight.
           </p>
           <div className="flex flex-wrap items-center gap-3">
@@ -51,7 +51,7 @@ export function Landing({ appUser = false }: { appUser?: boolean }) {
           </div>
           <QuickPaste />
           <ul className="flex flex-wrap gap-x-6 gap-y-2 text-sm font-medium text-muted-foreground">
-            <li>✓ Friends join by text, no app</li>
+            <li>✓ Friends join from a link, no app</li>
             <li>✓ Private votes, no peer pressure</li>
             <li>✓ Splits in any currency</li>
           </ul>
@@ -70,13 +70,13 @@ export function Landing({ appUser = false }: { appUser?: boolean }) {
               n={1}
               icon={<Link2 aria-hidden />}
               title="Drop links in one place"
-              body="Paste TikToks, Reels, Maps links or screenshots, or text them to the trip. AI finds the real place, hours and price, and files it under the right city."
+              body="Paste TikToks, Reels, Maps links or screenshots. AI finds the real place, hours and price, and files it under the right city."
             />
             <Step
               n={2}
               icon={<Vote aria-hidden />}
               title="Everyone votes, even without the app"
-              body="Each friend gets a personal text and votes Must-do, Down or Pass in two taps. Votes stay blind until you vote, so the loudest voice doesn't win."
+              body="Each friend gets a personal link and votes Must-do, Down or Pass in two taps, no app needed. Votes stay blind until you vote, so the loudest voice doesn't win."
             />
             <Step
               n={3}
@@ -101,7 +101,7 @@ export function Landing({ appUser = false }: { appUser?: boolean }) {
             <Feature icon={<MapPinned />} title="Multi-city trips" body="Lisbon then Porto? Ideas file under the right stop, and people can join just part of the trip." />
             <Feature icon={<CalendarDays />} title="Arrange my days" body="Turns decided ideas into a day-by-day plan around opening hours, meals and travel time. You preview before anything changes." />
             <Feature icon={<Receipt />} title="Receipts, split right" body="Snap a receipt and split it evenly or item by item. Balances are kept per currency, to the cent." />
-            <Feature icon={<MessageSquareText />} title="Works by text" body="Friends vote and get reminders by text, kept to about one a day. Reply STOP any time." />
+            <Feature icon={<MessageSquareText />} title="Share it to the group chat" body="Polls and decisions turn into preview cards you drop in the group chat. Tap to vote. We only text people their invite." />
           </div>
         </div>
       </section>
@@ -144,9 +144,9 @@ export function Landing({ appUser = false }: { appUser?: boolean }) {
         <div className="mx-auto w-full max-w-3xl px-5 lg:px-8">
           <SectionTitle eyebrow="FAQ" title="Good questions" />
           <div className="mt-8 divide-y rounded-2xl border bg-card">
-            <Faq q="Do my friends need to download an app?" a="No. Everyone gets a personal link by text and can view and vote right away in their browser." />
+            <Faq q="Do my friends need to download an app?" a="No. Everyone gets a personal link and can view and vote right away in their browser." />
             <Faq q="Do I need an account to start?" a="No. Start a trip with just a name or a link. You confirm your number when you invite people." />
-            <Faq q="Where does it work?" a="Anywhere you travel. Text messages go to US and Canadian numbers for now; friends elsewhere can use email." />
+            <Faq q="Where does it work?" a="Anywhere you travel. Invite texts go to US and Canadian numbers for now; anyone can join from a shared link." />
             <Faq q="How does it handle money?" a="It tracks who paid and who owes, per currency, and shows the fewest payments to settle up. It never moves money itself." />
             <Faq q="Is it free?" a="Yes, planning a trip with friends is free. Joining a trip, voting and splitting costs are always free." />
           </div>
@@ -161,7 +161,7 @@ export function Landing({ appUser = false }: { appUser?: boolean }) {
               <h2 className="font-display text-4xl font-extrabold leading-tight tracking-tight lg:text-5xl">
                 Your next trip starts with one link.
               </h2>
-              <p className="text-lg opacity-80">Set it up in a minute. Invite friends when you&apos;re ready. They vote from a text.</p>
+              <p className="text-lg opacity-80">Set it up in a minute. Invite friends when you&apos;re ready. They vote from a link.</p>
             </div>
             <div className="flex flex-col items-start gap-3 lg:items-end">
               <Link href={appUser ? routes.home : routes.start} className={buttonVariants({ size: "lg" })}>
