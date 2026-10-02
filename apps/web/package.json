@@ -19,6 +19,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.3",
+    "inngest": "^4.21.1",
     "jose": "^6.2.12",
     "libphonenumber-js": "^1.13.14",
     "lucide-react": "^0.540.0",

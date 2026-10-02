@@ -9,7 +9,9 @@ import { getSession, setFullSession } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { libraryRoutes } from "@/lib/library-routes";
 import { track } from "@/server/analytics";
-import { resolveSavedIdeaJob, saveToLibrary } from "@/server/library";
+import { EVENTS } from "@/inngest/client";
+import { enqueue } from "@/server/jobs";
+import { saveToLibrary } from "@/server/library";
 import { createTrip, DEFAULT_TRIP_NAME } from "@/server/trips";
 
 /**
@@ -45,7 +47,7 @@ export async function startTripAction(formData: FormData) {
 
   if (/https?:\/\//i.test(raw)) {
     const { savedIdeaId } = await saveToLibrary(db, userId, { raw });
-    after(() => resolveSavedIdeaJob(db, savedIdeaId));
+    await enqueue({ name: EVENTS.savedIdeaAdded, data: { savedIdeaId } });
     redirect(`${libraryRoutes.save(savedIdeaId)}?new=1`);
   }
   const { tripId, memberId } = await createTrip(db, { userId, ownerName, name: raw || DEFAULT_TRIP_NAME });
