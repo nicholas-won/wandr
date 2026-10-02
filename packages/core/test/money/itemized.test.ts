@@ -390,7 +390,7 @@ describe("splitItemized (FR-62)", () => {
   });
 
   describe("guest of honor (FR-90)", () => {
-    it("their items are redistributed proportionally to everyone else's subtotal", () => {
+    it("policy proportional: their items are redistributed proportionally to everyone else's subtotal", () => {
       const s = splitItemized({
         totalMinor: 6600,
         currency: "USD",
@@ -402,9 +402,70 @@ describe("splitItemized (FR-62)", () => {
         ],
         charges: [{ kind: "tax", amountMinor: 600 }],
         guestOfHonorIds: ["bride"],
+        guestOfHonorPolicy: "proportional",
       });
       expect(shareMap(s.shares)).toEqual({ a: 1650, b: 4950 });
       expect(s.excludedGuestOfHonorIds).toEqual(["bride"]);
+    });
+
+    // Q19: default "sharers"; alternatives "even" and "proportional".
+    const bach = {
+      totalMinor: 9900,
+      currency: "USD",
+      payerId: "a",
+      items: [
+        { id: "1", amountMinor: 1000, claims: [{ memberId: "a" }] },
+        { id: "2", amountMinor: 3000, claims: [{ memberId: "b" }] },
+        { id: "3", amountMinor: 3000, claims: [{ memberId: "c" }, { memberId: "bride" }] },
+        { id: "4", amountMinor: 2000, claims: [{ memberId: "bride" }] },
+      ],
+      charges: [{ kind: "tax" as const, amountMinor: 900 }],
+      guestOfHonorIds: ["bride"],
+    };
+
+    it("Q19 default (sharers): only the people who shared the item pick it up", () => {
+      const s = splitItemized(bach);
+      // item 3 goes wholly to c; item 4 (only the bride) falls back to even among a, b, c.
+      // subtotals: a 1000+666.67, b 3000+666.67, c 3000+666.67 (c took the whole shared bottle) → +10% tax.
+      expect(s.gohFallbackItemIds).toEqual(["4"]);
+      expect(sum(s.shares.map((x) => x.shareMinor))).toBe(9900);
+      expect(s.shares.find((x) => x.memberId === "bride")).toBeUndefined();
+      const m = shareMap(s.shares);
+      expect(m).toEqual({ a: 1834, b: 4033, c: 4033 });
+      // Q18: with leftoverTo the uploader takes the leftover penny instead.
+      const u = splitItemized({ ...bach, leftoverTo: ["c"] });
+      expect(shareMap(u.shares)).toEqual({ a: 1833, b: 4033, c: 4034 });
+      expect(u.rounding).toEqual({ leftoverMinor: 1, memberId: "c" });
+    });
+
+    it("Q19 even: the guest of honor's portion of each item goes evenly to everyone else", () => {
+      const s = splitItemized({ ...bach, guestOfHonorPolicy: "even", everyoneElse: ["a", "b", "c", "bride"] });
+      // bride's portion: 1500 (half of item 3) + 2000 = 3500 → 1166.67 each.
+      // subtotals: a 2166.67, b 4166.67, c 2666.67 → ×1.1
+      expect(sum(s.shares.map((x) => x.shareMinor))).toBe(9900);
+      expect(s.gohFallbackItemIds).toEqual([]);
+      expect(shareMap(s.shares)).toEqual({ a: 2384, b: 4583, c: 2933 });
+    });
+
+    it("Q19 proportional matches the old behavior", () => {
+      const s = splitItemized({ ...bach, guestOfHonorPolicy: "proportional" });
+      expect(sum(s.shares.map((x) => x.shareMinor))).toBe(9900);
+      // a 1000, b 3000, c 1500 → weights 2:6:3 over 9000 + tax
+      expect(shareMap(s.shares)).toEqual({ a: 1800, b: 5400, c: 2700 });
+    });
+
+    it("Q19: a receipt only the guest of honor claimed still errors", () => {
+      expect(
+        errCode(() =>
+          splitItemized({
+            totalMinor: 1000,
+            currency: "USD",
+            payerId: "a",
+            items: [{ id: "1", amountMinor: 1000, claims: [{ memberId: "bride" }] }],
+            guestOfHonorIds: ["bride"],
+          }),
+        ),
+      ).toBe("ALL_GUESTS_OF_HONOR");
     });
 
     it("shared item with the guest of honor", () => {

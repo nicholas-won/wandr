@@ -1,6 +1,7 @@
 import { compareIds } from "./allocate";
 import { assertCurrency, assertMinor, toSafeNumber, type CurrencyCode } from "./currency";
 import { MoneyError } from "./errors";
+import { payerPartsOf } from "./payers";
 import { assertValidSplit } from "./split";
 import type { AdjustmentEntry, LedgerExpense, MemberId, Share } from "./types";
 
@@ -44,10 +45,11 @@ export function validateAdjustmentSet(
   }
 }
 
-/** Net balance contribution of one expense: payer +total, shares -share. */
+/** Net balance contribution of one expense: each payer +paid (Q23a), shares -share. Personal-only: nothing. */
 export function expenseNet(e: LedgerExpense): Map<MemberId, bigint> {
   const m = new Map<MemberId, bigint>();
-  m.set(e.payerId, BigInt(e.totalMinor));
+  if (e.personal) return m;
+  for (const p of payerPartsOf(e)) m.set(p.memberId, (m.get(p.memberId) ?? 0n) + BigInt(p.paidMinor));
   for (const s of e.shares) m.set(s.memberId, (m.get(s.memberId) ?? 0n) - BigInt(s.shareMinor));
   return m;
 }

@@ -24,7 +24,9 @@ export type MoneyErrorCode =
   | "REFUND_EXCEEDS_ORIGINAL"
   | "INVALID_RATE"
   | "MISSING_RATE"
-  | "UNBALANCED_LEDGER";
+  | "UNBALANCED_LEDGER"
+  | "PAYERS_DO_NOT_SUM"
+  | "INVALID_COVER";
 
 export class MoneyError extends Error {
   readonly code: MoneyErrorCode;

@@ -1,8 +1,8 @@
 import { allocate } from "./allocate";
 import { assertMinor } from "./currency";
 import { MoneyError } from "./errors";
-import { assertValidSplit } from "./split";
-import type { Split } from "./types";
+import { allocOptions, assertValidSplit } from "./split";
+import type { MemberId, Split } from "./types";
 
 /**
  * Refunds are negative expenses that reuse the original split (FR-72, E-12).
@@ -16,7 +16,11 @@ import type { Split } from "./types";
  * The original must have a positive total and no negative shares. A refund
  * larger than the original is rejected (REFUND_EXCEEDS_ORIGINAL).
  */
-export function refundFromOriginal(original: Split, refundMinor: number, options: { tieBreakStart?: number } = {}): Split {
+export function refundFromOriginal(
+  original: Split,
+  refundMinor: number,
+  options: { tieBreakStart?: number; leftoverTo?: readonly MemberId[] } = {},
+): Split {
   assertValidSplit(original);
   assertMinor(refundMinor, "refundMinor");
   if (refundMinor <= 0) {
@@ -31,10 +35,15 @@ export function refundFromOriginal(original: Split, refundMinor: number, options
       originalMinor: original.totalMinor,
     });
   }
+  const weights = original.shares.map((s) => s.shareMinor);
   const parts = allocate(
     -refundMinor,
-    original.shares.map((s) => s.shareMinor),
-    options,
+    weights,
+    allocOptions(
+      original.shares.map((s) => s.memberId),
+      weights,
+      options,
+    ),
   );
   return {
     currency: original.currency,

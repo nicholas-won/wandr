@@ -3,13 +3,15 @@ import { assertCurrency, assertMinor, toSafeNumber, type CurrencyCode } from "./
 import { MoneyError } from "./errors";
 import { assertValidSplit } from "./split";
 import { validateAdjustmentSet } from "./adjustments";
+import { payerPartsOf } from "./payers";
 import type { AdjustmentEntry, LedgerExpense, MemberId, Payment, Share } from "./types";
 
 /**
  * Net balances per currency (FR-66, FR-70, FR-71, D29).
  *
  * Sign convention: positive = the member is owed money; negative = they owe.
- * - Expense: payer +total, each share -share.
+ * - Expense: each payer +what they paid (Q23a; one payer = +total), each share -share.
+ *   Personal-only expenses (Q23c) are skipped.
  * - Adjustment entry (FR-69): +deltaMinor.
  * - Payment from A to B: A +amount (debt paid down), B -amount.
  *
@@ -34,8 +36,9 @@ export function computeBalances(input: LedgerInput): Balances {
   };
 
   for (const e of input.expenses ?? []) {
+    if (e.personal) continue; // Q23c: personal-only expenses never touch group balances
     assertValidSplit({ currency: e.currency, totalMinor: e.totalMinor, shares: sortShares(e.shares) });
-    add(e.currency, e.payerId, BigInt(e.totalMinor));
+    for (const p of payerPartsOf(e)) add(e.currency, p.memberId, BigInt(p.paidMinor));
     for (const s of e.shares) add(e.currency, s.memberId, -BigInt(s.shareMinor));
   }
 

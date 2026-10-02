@@ -1,4 +1,4 @@
-import { allocate, compareIds } from "./allocate";
+import { allocateDetailed, compareIds, remainderIndex } from "./allocate";
 import { assertCurrency, assertMinor, type CurrencyCode } from "./currency";
 import { MoneyError } from "./errors";
 import type { MemberId, Share, Split } from "./types";
@@ -54,11 +54,39 @@ export interface EvenSplitInput {
   guestOfHonorIds?: readonly MemberId[];
   /** See `AllocateOptions.tieBreakStart`. Default 0 (lowest member id gets leftover pennies first). */
   tieBreakStart?: number;
+  /**
+   * Q18: who takes every leftover penny, in order of preference (e.g. [uploader, payer]). The
+   * first one who is in the split gets them all; if none is, `tieBreakStart` decides.
+   */
+  leftoverTo?: readonly MemberId[];
+}
+
+/**
+ * Q18: whether rounding was needed and who absorbed it. `leftoverMinor` is 0 when the
+ * amount divided exactly; `memberId` is null when the default tie-break spread it.
+ */
+export interface Rounding {
+  leftoverMinor: number;
+  memberId: MemberId | null;
 }
 
 export interface EvenSplit extends Split {
   /** Participants who were dropped because they are guests of honor. */
   excludedGuestOfHonorIds: MemberId[];
+  rounding: Rounding;
+}
+
+/** Builds `AllocateOptions` from the shared tieBreakStart / leftoverTo inputs. */
+export function allocOptions(
+  ids: readonly MemberId[],
+  weights: readonly (number | bigint)[],
+  o: { tieBreakStart?: number | undefined; leftoverTo?: readonly MemberId[] | undefined },
+): { tieBreakStart?: number; remainderTo?: number } {
+  const out: { tieBreakStart?: number; remainderTo?: number } = {};
+  if (o.tieBreakStart !== undefined) out.tieBreakStart = o.tieBreakStart;
+  const r = remainderIndex(ids, weights, o.leftoverTo);
+  if (r !== undefined) out.remainderTo = r;
+  return out;
 }
 
 /**
@@ -84,16 +112,14 @@ export function splitEven(input: EvenSplitInput): EvenSplit {
       "Everyone in this split is a guest of honor; someone has to pay",
     );
   }
-  const parts = allocate(
-    input.totalMinor,
-    payers.map(() => 1),
-    input.tieBreakStart === undefined ? {} : { tieBreakStart: input.tieBreakStart },
-  );
+  const weights = payers.map(() => 1);
+  const d = allocateDetailed(input.totalMinor, weights, allocOptions(payers, weights, input));
   return {
     currency: input.currency,
     totalMinor: input.totalMinor,
-    shares: payers.map((memberId, i) => ({ memberId, shareMinor: parts[i]! })),
+    shares: payers.map((memberId, i) => ({ memberId, shareMinor: d.parts[i]! })),
     excludedGuestOfHonorIds: excluded,
+    rounding: roundingOf(d, payers),
   };
 }
 
@@ -123,22 +149,27 @@ export function splitByWeights(input: {
   currency: CurrencyCode;
   weights: readonly { memberId: MemberId; weight: number }[];
   tieBreakStart?: number;
-}): Split {
+  leftoverTo?: readonly MemberId[];
+}): Split & { rounding: Rounding } {
   assertCurrency(input.currency);
   assertMinor(input.totalMinor, "totalMinor");
   const sorted = [...input.weights].sort((a, b) => compareIds(a.memberId, b.memberId));
   normalizeMemberIds(sorted.map((w) => w.memberId), "weights");
   if (sorted.length === 0) throw new MoneyError("NO_PARTICIPANTS", "No members to split across");
-  const parts = allocate(
-    input.totalMinor,
-    sorted.map((w) => w.weight),
-    input.tieBreakStart === undefined ? {} : { tieBreakStart: input.tieBreakStart },
-  );
+  const ids = sorted.map((w) => w.memberId);
+  const ws = sorted.map((w) => w.weight);
+  const d = allocateDetailed(input.totalMinor, ws, allocOptions(ids, ws, input));
   return {
     currency: input.currency,
     totalMinor: input.totalMinor,
-    shares: sorted.map((w, i) => ({ memberId: w.memberId, shareMinor: parts[i]! })),
+    shares: sorted.map((w, i) => ({ memberId: w.memberId, shareMinor: d.parts[i]! })),
+    rounding: roundingOf(d, ids),
   };
+}
+
+/** Rounding info from an allocation over `ids`. */
+export function roundingOf(d: { leftoverMinor: number; leftoverIndex: number | null }, ids: readonly MemberId[]): Rounding {
+  return { leftoverMinor: d.leftoverMinor, memberId: d.leftoverIndex === null ? null : ids[d.leftoverIndex]! };
 }
 
 /** Sorts shares and merges duplicates (summing them); drops nothing. */

@@ -13,7 +13,7 @@ import {
 import { errCode, shareMap } from "./helpers";
 
 const even = (totalMinor: number, ids: string[]): Split => {
-  const { excludedGuestOfHonorIds: _x, ...s } = splitEven({ totalMinor, currency: "USD", participantIds: ids });
+  const { excludedGuestOfHonorIds: _x, rounding: _r, ...s } = splitEven({ totalMinor, currency: "USD", participantIds: ids });
   return s;
 };
 

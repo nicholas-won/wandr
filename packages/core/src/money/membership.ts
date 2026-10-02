@@ -1,6 +1,6 @@
 import { allocate, compareIds } from "./allocate";
 import { MoneyError } from "./errors";
-import { assertValidSplit, mergeShares, normalizeMemberIds, splitEven } from "./split";
+import { allocOptions, assertValidSplit, mergeShares, normalizeMemberIds, splitEven } from "./split";
 import type { MemberId, Split } from "./types";
 
 /**
@@ -38,7 +38,7 @@ export function applyDropOut(
   split: Split,
   memberId: MemberId,
   decision: DropOutDecision,
-  options: { among?: readonly MemberId[]; tieBreakStart?: number } = {},
+  options: { among?: readonly MemberId[]; tieBreakStart?: number; leftoverTo?: readonly MemberId[] } = {},
 ): DropOutResult {
   assertValidSplit(split);
   const mine = split.shares.find((s) => s.memberId === memberId);
@@ -56,13 +56,16 @@ export function applyDropOut(
 export function redistributeShare(
   split: Split,
   memberId: MemberId,
-  options: { among?: readonly MemberId[]; tieBreakStart?: number } = {},
+  options: { among?: readonly MemberId[]; tieBreakStart?: number; leftoverTo?: readonly MemberId[] } = {},
 ): Split {
   assertValidSplit(split);
   const mine = split.shares.find((s) => s.memberId === memberId);
   if (!mine) throw new MoneyError("UNKNOWN_MEMBER", "That member isn't part of this expense", { memberId });
   const rest = split.shares.filter((s) => s.memberId !== memberId);
-  const opts = options.tieBreakStart === undefined ? {} : { tieBreakStart: options.tieBreakStart };
+  const opts = {
+    ...(options.tieBreakStart === undefined ? {} : { tieBreakStart: options.tieBreakStart }),
+    ...(options.leftoverTo ? { leftoverTo: options.leftoverTo } : {}),
+  };
 
   let added: { memberId: MemberId; shareMinor: number }[];
   if (options.among) {
@@ -78,7 +81,8 @@ export function redistributeShare(
     const sameSign = rest.every((s) => s.shareMinor >= 0);
     const weights = rest.map((s) => (sameSign ? s.shareMinor : 0));
     const useEven = !sameSign || weights.every((w) => w === 0);
-    const parts = allocate(mine.shareMinor, useEven ? rest.map(() => 1) : weights, opts);
+    const ws = useEven ? rest.map(() => 1) : weights;
+    const parts = allocate(mine.shareMinor, ws, allocOptions(rest.map((s) => s.memberId), ws, opts));
     added = rest.map((s, i) => ({ memberId: s.memberId, shareMinor: parts[i]! }));
   }
   const shares = mergeShares([...rest, ...added]);
@@ -114,10 +118,10 @@ export function replaceMember(split: Split, fromMemberId: MemberId, toMemberId: 
 export function resplitEvenly(
   split: Split,
   participantIds: readonly MemberId[],
-  options: { guestOfHonorIds?: readonly MemberId[]; tieBreakStart?: number } = {},
+  options: { guestOfHonorIds?: readonly MemberId[]; tieBreakStart?: number; leftoverTo?: readonly MemberId[] } = {},
 ): Split {
   assertValidSplit(split);
-  const { excludedGuestOfHonorIds: _ignored, ...rest } = splitEven({
+  const { excludedGuestOfHonorIds: _ignored, rounding: _rounding, ...rest } = splitEven({
     totalMinor: split.totalMinor,
     currency: split.currency,
     participantIds,
@@ -134,7 +138,7 @@ export function resplitEvenly(
 export function addToEvenSplit(
   split: Split,
   newMemberIds: readonly MemberId[],
-  options: { guestOfHonorIds?: readonly MemberId[]; tieBreakStart?: number } = {},
+  options: { guestOfHonorIds?: readonly MemberId[]; tieBreakStart?: number; leftoverTo?: readonly MemberId[] } = {},
 ): Split {
   const current = split.shares.map((s) => s.memberId);
   const merged = [...new Set([...current, ...newMemberIds])].sort(compareIds);
