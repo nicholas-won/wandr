@@ -8,6 +8,7 @@ import { routes } from "@/lib/routes";
 import { tripContext } from "@/server/context";
 import { getPlanContext, isPlanOutOfDate, planHints, previewPlan } from "@/server/plan";
 import { ApplyPlan, ItemControls } from "./plan-controls";
+import { PlanMapRail, type PlanMapDay } from "@/components/map/plan-map-rail";
 
 const MODE: Record<string, string> = { walk: "🚶", transit: "🚇", drive: "🚗" };
 
@@ -43,7 +44,8 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
   if (preview && ctx.canApply) {
     const plan = previewPlan(ctx);
     return (
-      <main className="space-y-4">
+      <div className={RAIL_GRID}>
+      <main className="min-w-0 space-y-4">
         <p className="rounded-xl bg-secondary px-4 py-3 text-sm text-secondary-foreground">
           Here&apos;s a suggested order. Nothing changes until you apply it. Locked items stay put.
         </p>
@@ -62,6 +64,8 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
         ) : null}
         <ApplyPlan tripId={tripId} stopId={stopId} backHref={base} />
       </main>
+      <PlanMapRail days={mapDays(ctx, plan.days.map((d) => ({ label: dayLabel(d.dayIndex, d.date), ids: d.items.map((it) => it.itemId) })))} />
+      </div>
     );
   }
 
@@ -79,7 +83,8 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
   const dates = typeof ctx.input.stop.days === "number" ? [] : ctx.input.stop.days;
 
   return (
-    <main className="space-y-4">
+    <div className={RAIL_GRID}>
+    <main className="min-w-0 space-y-4">
       {outOfDate ? (
         <p className="rounded-xl bg-accent px-4 py-3 text-sm text-accent-foreground">
           Plan may be out of date: ideas or attendance changed since it was arranged.
@@ -138,7 +143,30 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
         ))
       )}
     </main>
+    <PlanMapRail
+      days={mapDays(
+        ctx,
+        days.map((items, d) => ({ label: dayLabel(d, dates[d] ?? null), ids: items.flatMap((it) => (it.ideaId ? [it.ideaId] : [])) })),
+      )}
+    />
+    </div>
   );
+}
+
+/** Desktop: days on the left, a sticky day map on the right (FR-O7). Phone: one column, map first and collapsed. */
+const RAIL_GRID = "flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] lg:items-start lg:gap-6";
+
+/** Each day's planned places, in order, for the map rail. Only items this page already shows. */
+function mapDays(ctx: { input: optimizer.ArrangeInput; titles: Map<string, string> }, days: { label: string; ids: string[] }[]): PlanMapDay[] {
+  const byId = new Map(ctx.input.items.map((i) => [i.id, i]));
+  return days.map((d, n) => ({
+    key: String(n),
+    label: d.label,
+    pins: d.ids.flatMap((id) => {
+      const i = byId.get(id);
+      return i ? [{ id, lat: i.lat ?? null, lng: i.lng ?? null, title: ctx.titles.get(id) ?? i.title ?? "Planned item", category: i.category }] : [];
+    }),
+  }));
 }
 
 function PlanDays({ plan, title }: { plan: optimizer.Plan; title: (id: string) => string }) {

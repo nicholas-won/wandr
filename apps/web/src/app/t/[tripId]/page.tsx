@@ -17,6 +17,7 @@ import { SizeNotice } from "@/components/trip/people-admin";
 import { getSizeNotices } from "@/server/membership";
 import { myNotMyPicks } from "@/server/planning";
 import { loadPlanning } from "@/server/planning-context";
+import { MiniMapCard } from "@/components/map/mini-map-card";
 
 export default async function IdeasPage({ params, searchParams }: PageProps<"/t/[tripId]">) {
   const { tripId } = await params;
@@ -117,6 +118,7 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
       {/* Desktop planning rail */}
       <aside className="hidden lg:block">
         <div className="sticky top-8 space-y-4">
+          <MiniMapCard tripId={tripId} />
           <TopPicks picks={topPicks} size={size} />
           <Card>
             <CardHeader>
