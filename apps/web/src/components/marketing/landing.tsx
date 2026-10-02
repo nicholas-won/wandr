@@ -63,7 +63,7 @@ export function Landing() {
             <div className="my-5 flex items-center gap-3 text-xs font-semibold text-muted-foreground">
               <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
             </div>
-            <PasteStartForm label="Start from a TikTok, Reel or link" />
+            <PasteStartForm label="Start from a TikTok, Reel or link" idPrefix="hero-paste" />
           </div>
         </div>
       </section>
@@ -172,7 +172,7 @@ export function Landing() {
             </p>
           </div>
           <div className="space-y-6 rounded-3xl border bg-card p-6 shadow-xl">
-            <ClassicSetupForm cta="Start my trip" />
+            <ClassicSetupForm cta="Start my trip" idPrefix="final" />
             <div className="hidden lg:block lg:pt-2">
               <ProductPreviewNote />
             </div>

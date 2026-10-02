@@ -4,6 +4,8 @@ import { refresh } from "next/cache";
 import { AuthError, requireFull } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { tripContext } from "@/server/context";
+import { after } from "next/server";
+import { track } from "@/server/analytics";
 import { applyPlan, updatePlanItem } from "@/server/plan";
 import type { ActionResult } from "../actions";
 
@@ -24,6 +26,7 @@ export async function applyPlanAction(tripId: string, stopId: string | null): Pr
   try {
     const { db, claims } = await full(tripId);
     await applyPlan(db, claims, tripId, stopId);
+    after(() => track(db, { name: "plan_applied", tripId, props: { stopId } }));
     refresh();
     return { ok: true, message: "Plan applied. Everyone can see it now." };
   } catch (e) {
