@@ -427,6 +427,11 @@ export const expenses = pgTable(
     splitConfig: jsonb("split_config").notNull().default({}),
     /** Refunds point at the expense they reverse (FR-72). */
     refundOfExpenseId: uuid("refund_of_expense_id"),
+    /**
+     * Q23c: a personal-only expense, tracked for this member alone. Never split, visible only to
+     * them (RLS), excluded from group balances. Null = a normal shared expense.
+     */
+    personalMemberId: uuid("personal_member_id").references(() => members.id),
     lockedAt: timestamp("locked_at", { withTimezone: true }), // FR-69
     deletedAt: timestamp("deleted_at", { withTimezone: true }), // soft delete only
     hiddenFrom: hiddenFrom(),
@@ -465,6 +470,64 @@ export const expenseShares = pgTable(
     shareMinor: money("share_minor").notNull(),
   },
   (t) => [primaryKey({ columns: [t.expenseId, t.memberId] })],
+);
+
+/**
+ * Q23a: one bill paid by several people. No rows = `expenses.paid_by_member_id` paid it all.
+ * With rows, the parts sum to the total and `paid_by_member_id` is the main payer. Frozen with
+ * the expense on lock (FR-69).
+ */
+export const expensePayers = pgTable(
+  "expense_payers",
+  {
+    expenseId: uuid("expense_id").notNull().references(() => expenses.id, { onDelete: "cascade" }),
+    memberId: uuid("member_id").notNull().references(() => members.id),
+    paidMinor: money("paid_minor").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.expenseId, t.memberId] })],
+);
+
+/**
+ * Q21: the corrected state of a settled expense, appended with every correction (FR-69) so
+ * spending reports (category totals, spend per person) follow corrections. Append-only.
+ * The balance effect itself lives in `expense_adjustments`.
+ */
+export const expenseCorrections = pgTable(
+  "expense_corrections",
+  {
+    id: id(),
+    expenseId: uuid("expense_id").notNull().references(() => expenses.id),
+    tripId: uuid("trip_id").notNull().references(() => trips.id),
+    totalMinor: money("total_minor").notNull(),
+    /** [{ memberId, shareMinor }] summing to total_minor. */
+    shares: jsonb("shares").notNull(),
+    paidByMemberId: uuid("paid_by_member_id").notNull().references(() => members.id),
+    /** [{ memberId, paidMinor }] for several payers, else null. */
+    payers: jsonb("payers"),
+    reason: text("reason").notNull(),
+    createdByMemberId: uuid("created_by_member_id").notNull().references(() => members.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index("expense_corrections_expense_idx").on(t.expenseId)],
+);
+
+/**
+ * Q24: an organizer's "keep both" on a pair of receipts flagged as probable duplicates by their
+ * line items. "Delete one" is an ordinary soft delete. Append-only.
+ */
+export const expenseDuplicateReviews = pgTable(
+  "expense_duplicate_reviews",
+  {
+    id: id(),
+    tripId: uuid("trip_id").notNull().references(() => trips.id, { onDelete: "cascade" }),
+    /** The pair, stored with expense_id < other_expense_id. */
+    expenseId: uuid("expense_id").notNull().references(() => expenses.id),
+    otherExpenseId: uuid("other_expense_id").notNull().references(() => expenses.id),
+    decision: text("decision").notNull(),
+    decidedByMemberId: uuid("decided_by_member_id").references(() => members.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index("expense_duplicate_reviews_trip_idx").on(t.tripId)],
 );
 
 /** Corrections to locked expenses (FR-69): a signed delta per member. */
