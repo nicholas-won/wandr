@@ -69,3 +69,12 @@ move the answer into REQUIREMENTS.md §13 and update the code.
 | Q39 | Recycled-number recheck (J-4) second factor | `needsRecheck` blocks full actions; recheck step not built |
 | Q40 | FR-86 banned-word list for trip names in texts | Strict ("Wine country" → "your trip") |
 | Q41 | Not built yet: quiet hours (N-5), per-trip MUTE (N-2), delivery callbacks, server-side session revocation | Later slices |
+
+## Desktop vs phone (founder direction, 2026-10-01)
+
+Decided by the founder in chat; propose adding to §13 as D64:
+- Desktop web is a **planning workspace**: marketing landing page with calls to action for visitors,
+  classic setup (FR-1b: destinations + dates) as the primary start, sidebar trip shell, wide
+  multi-column views (ideas grid + "top picks" rail, money list + balances side by side).
+- Phone web is **capture-first** (paste a TikTok link, vote from a text) and bridges the gap until
+  the native app (Phase 2).

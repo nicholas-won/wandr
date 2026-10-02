@@ -31,23 +31,52 @@ export const STAGES = ["where", "when", "stay", "getting_around", "do"] as const
  */
 export async function createTrip(
   db: Db,
-  args: { userId: string; ownerName: string; name: string; city?: string | null },
+  args: {
+    userId: string;
+    ownerName: string;
+    name: string;
+    city?: string | null;
+    /** FR-1(b) classic setup: destinations in order (each becomes a Stop, FR-S5). */
+    destinations?: string[];
+    startDate?: string | null;
+    endDate?: string | null;
+  },
 ): Promise<{ tripId: string; memberId: string; stopId: string }> {
+  const destinations = (args.destinations ?? (args.city ? [args.city] : []))
+    .map((d) => d.trim().slice(0, 60))
+    .filter(Boolean)
+    .slice(0, 8);
+  const dated = !!(args.startDate && args.endDate && args.startDate <= args.endDate);
   return asService(db, async (tx) => {
     const [trip] = await tx
       .insert(trips)
       .values({ name: args.name.trim().slice(0, 80) || "Our trip", createdBy: args.userId })
       .returning({ id: trips.id });
     const tripId = trip!.id;
-    const [stop] = await tx
+    const stopRows = await tx
       .insert(stops)
-      .values({ tripId, name: args.city?.trim() ?? "", isDefault: true })
+      .values(
+        destinations.length
+          ? destinations.map((name, position) => ({
+              tripId,
+              name,
+              position,
+              isDefault: destinations.length === 1,
+              // One destination: the whole date range. Several: dates per Stop are decided in When.
+              ...(dated && destinations.length === 1 ? { startDate: args.startDate!, endDate: args.endDate! } : {}),
+            }))
+          : [{ tripId, name: "", isDefault: true }],
+      )
       .returning({ id: stops.id });
+    // Known destinations skip Where; known dates skip When (FR-S2). Everything else starts collecting.
     await tx.insert(tripStages).values(
       STAGES.map((stage) => ({
         tripId,
         stage,
-        status: args.city && stage === "where" ? ("set" as const) : ("collecting" as const),
+        status:
+          (stage === "where" && destinations.length > 0) || (stage === "when" && dated)
+            ? ("set" as const)
+            : ("collecting" as const),
       })),
     );
     const [member] = await tx
@@ -61,7 +90,7 @@ export async function createTrip(
         joinedAt: new Date(),
       })
       .returning({ id: members.id });
-    return { tripId, memberId: member!.id, stopId: stop!.id };
+    return { tripId, memberId: member!.id, stopId: stopRows[0]!.id };
   });
 }
 
