@@ -7,7 +7,8 @@ import { asService, getDb, users } from "@wandr/db";
 import { createProvisionalUser, PROVISIONAL_NAME } from "@/lib/auth/provisional";
 import { getSession, setFullSession } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
-import { addIdea, resolveIdeaJob } from "@/server/ideas";
+import { libraryRoutes } from "@/lib/library-routes";
+import { resolveSavedIdeaJob, saveToLibrary } from "@/server/library";
 import { createTrip, DEFAULT_TRIP_NAME } from "@/server/trips";
 
 /**
@@ -32,20 +33,21 @@ async function ensureUser() {
   return { db, userId, ownerName };
 }
 
+/**
+ * FR-1(a) / FR-L1: a pasted link with no trip saves to the person's library FIRST; the save
+ * page then offers "Start a trip around this?" with a suggested name and Stop. Typing just a
+ * name still creates the trip directly (P1).
+ */
 export async function startTripAction(formData: FormData) {
   const raw = String(formData.get("raw") ?? "").trim().slice(0, 4000);
   const { db, userId, ownerName } = await ensureUser();
 
-  const looksLikeIdea = /https?:\/\//i.test(raw);
-  const { tripId, memberId } = await createTrip(db, {
-    userId,
-    ownerName,
-    name: looksLikeIdea || !raw ? DEFAULT_TRIP_NAME : raw,
-  });
-  if (looksLikeIdea) {
-    const { ideaId } = await addIdea(db, { sub: userId }, { tripId, memberId, raw });
-    after(() => resolveIdeaJob(db, ideaId));
+  if (/https?:\/\//i.test(raw)) {
+    const { savedIdeaId } = await saveToLibrary(db, userId, { raw });
+    after(() => resolveSavedIdeaJob(db, savedIdeaId));
+    redirect(`${libraryRoutes.save(savedIdeaId)}?new=1`);
   }
+  const { tripId } = await createTrip(db, { userId, ownerName, name: raw || DEFAULT_TRIP_NAME });
   redirect(routes.trip(tripId));
 }
 

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useOptimistic, useState, useTransition } from "react";
 import { ExternalLink, MapPin, Pencil } from "lucide-react";
 import { voteLabel, type TripSize, type VoteValue } from "@wandr/core";
+import { SaveForNextTime } from "@/components/library/save-for-next-time";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -194,6 +195,9 @@ export function IdeaCard({
             })}
           </div>
           <VoteSummary card={card} size={size} />
+          <div className="mt-2 text-right">
+            <SaveForNextTime tripId={tripId} ideaId={card.id} />
+          </div>
         </div>
       )}
     </Card>
