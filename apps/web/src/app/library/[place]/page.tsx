@@ -53,6 +53,7 @@ export default async function PlacePage({ params, searchParams }: PageProps<"/li
 
       {isMap ? (
         <SaveMap
+          label={`Map of ${name}`}
           points={saves.map((s) => ({
             id: s.id,
             title: s.title,
@@ -60,6 +61,7 @@ export default async function PlacePage({ params, searchParams }: PageProps<"/li
             lng: s.lng,
             placeId: s.placeId,
             group: name,
+            category: s.categoryOverride ?? s.category,
             href: libraryRoutes.save(s.id),
           }))}
         />
