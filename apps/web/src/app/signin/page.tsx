@@ -16,7 +16,8 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
   const next = safeNextPath(typeof sp.next === "string" ? sp.next : undefined);
   const session = await getSession();
   let needsName = false;
-  if (session.user) {
+  // A provisional (zero-setup) creator hasn't verified anything yet: start at the phone step.
+  if (session.user && !session.user.provisional) {
     const db = await getDb();
     const [me] = await asService(db, (tx) =>
       tx.select({ name: users.displayName }).from(users).where(eq(users.id, session.user!.userId)).limit(1),
