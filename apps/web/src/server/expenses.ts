@@ -37,6 +37,7 @@ import {
   type Tx,
 } from "@wandr/db";
 import { budgetView, type BudgetRow } from "@wandr/db/reveals";
+import { tripBalances } from "./membership";
 import { tripSize, type TripSize } from "@wandr/core";
 import * as money from "@wandr/core/money";
 
@@ -1373,7 +1374,6 @@ export async function getMoneyOverview(db: Db, claims: Claims, tripId: string): 
       ? await tx.select().from(expenseItemClaims).where(inArray(expenseItemClaims.itemId, itemRows.map((i) => i.id)))
       : [];
     const claimed = new Set(claimRows.map((c) => c.itemId));
-    const adjRows = await tx.select().from(expenseAdjustments).where(eq(expenseAdjustments.tripId, tripId));
     const payRows = await tx.select().from(payments).where(eq(payments.tripId, tripId)).orderBy(desc(payments.createdAt));
 
     const name = (id: string) => {
@@ -1395,19 +1395,9 @@ export async function getMoneyOverview(db: Db, claims: Claims, tripId: string): 
       payerId: r.paidByMemberId,
       shares: (sharesBy.get(r.id) ?? []).sort((a, b) => money.compareIds(a.memberId, b.memberId)),
     }));
-    const expenseCurrency = new Map(rows.map((r) => [r.id, r.currency]));
-    const balances = money.computeBalances({
-      expenses: ledger,
-      adjustments: adjRows
-        .filter((a) => expenseCurrency.has(a.expenseId))
-        .map((a) => ({ memberId: a.memberId, currency: expenseCurrency.get(a.expenseId)!, deltaMinor: a.deltaMinor })),
-      payments: payRows.map((p) => ({
-        fromMemberId: p.fromMemberId,
-        toMemberId: p.toMemberId,
-        currency: p.currency,
-        amountMinor: p.amountMinor,
-      })),
-    });
+
+    // Same ledger the removal flow uses (membership.ts, FR-9), here under the caller's RLS.
+    const balances = await tripBalances(tx, tripId);
 
     let mineRaw: money.SettleUpLine[] = [];
     let transfers: Transfer[] = [];

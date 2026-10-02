@@ -16,6 +16,8 @@ export interface TripSection {
 export const TRIP_SECTIONS: TripSection[] = [
   { segment: "", label: "Ideas" },
   { segment: "plan", label: "Plan" },
+  // §6.5 / FR-124: appears after the first expense (P2); "Add an expense" on the ideas page otherwise.
+  { segment: "money", label: "Money", soloLabel: "Spending", show: (v) => v.hasExpenses },
   { segment: "people", label: "People", soloLabel: "Invite" },
   // FR-6/7/10, FR-2: organizers only (P2: hidden until needed).
   { segment: "settings", label: "Settings", show: (v) => v.me.role !== "member" },
