@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useOptimistic, useState, useTransition } from "react";
+import { useOptimistic, useState, useTransition, type ReactNode } from "react";
 import { ExternalLink, MapPin, Pencil } from "lucide-react";
 import { voteLabel, type TripSize, type VoteValue } from "@wandr/core";
+import { SaveForNextTime } from "@/components/library/save-for-next-time";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,10 +38,13 @@ export function IdeaCard({
   tripId,
   card,
   size,
+  extra,
 }: {
   tripId: string;
   card: Card_;
   size: TripSize;
+  /** Optional footer (status, "Not my pick, but I'm in"; FR-49/50). */
+  extra?: ReactNode;
 }) {
   const candidates = card.listicle;
   const router = useRouter();
@@ -194,8 +198,12 @@ export function IdeaCard({
             })}
           </div>
           <VoteSummary card={card} size={size} />
+          <div className="mt-2 text-right">
+            <SaveForNextTime tripId={tripId} ideaId={card.id} />
+          </div>
         </div>
       )}
+      {extra}
     </Card>
   );
 }

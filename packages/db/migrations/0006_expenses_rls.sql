@@ -1,4 +1,4 @@
--- 0004_expenses_rls.sql: RLS for the expenses slice tables added in 0004_expenses.sql.
+-- 0006_expenses_rls.sql: RLS for the expenses slice tables added in 0006_expenses.sql.
 --
 -- Hand-written. Runs as one file.
 --   FR-5     money is full scope only (verified code), never a personal-link session

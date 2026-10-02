@@ -26,8 +26,22 @@
     {
       "idx": 3,
       "version": "7",
-      "when": 1790900509637,
-      "tag": "0004_expenses",
+      "when": 1790900659982,
+      "tag": "0004_share_cards",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790919040290,
+      "tag": "0005_poll_pause_runoff",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790919181723,
+      "tag": "0006_expenses",
       "breakpoints": true
     }
   ]

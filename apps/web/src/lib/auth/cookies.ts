@@ -6,6 +6,8 @@ export const COOKIE = {
   links: "w_lnk",
   /** Random per-device id; its hash binds personal links to the first device (FR-5). */
   device: "w_dev",
+  /** Shared-board link grants (FR-L14). */
+  boards: "w_brd",
   /** Pending code challenge. */
   otp: "w_otp",
 } as const;

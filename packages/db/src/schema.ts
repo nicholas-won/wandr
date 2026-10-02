@@ -362,6 +362,12 @@ export const polls = pgTable("polls", {
   winningOptionId: uuid("winning_option_id"),
   createdByMemberId: uuid("created_by_member_id").references(() => members.id),
   sharedAt: timestamp("shared_at", { withTimezone: true }), // FR-80c fallback timer
+  /** Paused by an organizer, a reopened stage or a Stop date change (S-4, S-6). No votes, no deadline. */
+  pausedAt: timestamp("paused_at", { withTimezone: true }),
+  /** Who closed it early (V-12 "Closed early by Sam"). Null when the deadline closed it. */
+  closedByMemberId: uuid("closed_by_member_id").references((): AnyPgColumn => members.id),
+  /** Run-off between the tied options of this poll (FR-48, V-7). */
+  runoffOfPollId: uuid("runoff_of_poll_id").references((): AnyPgColumn => polls.id, { onDelete: "set null" }),
   hiddenFrom: hiddenFrom(),
   createdAt: createdAt(),
 });
@@ -862,3 +868,47 @@ export const aiImports = pgTable(
   },
   (t) => [index("ai_imports_user_idx").on(t.userId, t.createdAt)],
 );
+
+// ---------------------------------------------------------------------------
+// Group-chat share cards (FR-80a/b/d/e). Service only: no client grants.
+// ---------------------------------------------------------------------------
+
+/**
+ * A frozen preview of an idea, poll, decision or daily digest, shared to a group chat through
+ * the organizer's own phone. `snapshot` holds only group-safe fields (built by
+ * @wandr/core/messaging buildShareSnapshot): never surprise items, money, votes, Pass counts,
+ * non-voters or phone numbers. The id is the unguessable public handle in /s/[kind]/[id].
+ */
+export const shareCards = pgTable(
+  "share_cards",
+  {
+    id: id(),
+    tripId: uuid("trip_id").notNull().references(() => trips.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // idea | poll | decision | digest
+    /** Idea or poll id (null for digests). Re-checked on view: hidden or deleted → gone. */
+    subjectId: uuid("subject_id"),
+    /** Digest day (UTC), one digest per trip per day (D43). */
+    digestDay: date("digest_day"),
+    snapshot: jsonb("snapshot").notNull(),
+    createdByMemberId: uuid("created_by_member_id").references(() => members.id, { onDelete: "set null" }),
+    /** When someone opened the share sheet for it (prompt done; FR-80c timer for polls). */
+    sharedAt: timestamp("shared_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("share_cards_trip_idx").on(t.tripId, t.createdAt),
+    uniqueIndex("share_cards_digest_uq").on(t.tripId, t.digestDay).where(sql`${t.kind} = 'digest'`),
+  ],
+).enableRLS();
+
+/**
+ * Idempotency keys for background notifications ("poll_closing:{poll}:{member}",
+ * "poll_fallback:{poll}:{member}", "digest_email:{trip}:{day}:{member}"). Service only: these
+ * rows identify non-voters, so they must never be readable by members or organizers (FR-42).
+ */
+export const notificationKeys = pgTable("notification_keys", {
+  key: text("key").primaryKey(),
+  tripId: uuid("trip_id").references(() => trips.id, { onDelete: "cascade" }),
+  createdAt: createdAt(),
+}).enableRLS();

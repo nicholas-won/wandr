@@ -1,35 +1,67 @@
 /**
- * Integration points that later slices fill in. Each one is called by the platform layer today
- * and does the minimum safe thing until wired up.
+ * Integration points between the platform layer (inbound texts) and feature slices.
  */
 import { asService, auditLog, getDb } from "@wandr/db";
 
 /**
- * A link texted to our number (FR-82, FR-83).
- * TODO(hero slice): run the idea pipeline (FR-20–26): pick the sender's most recently active trip
- * and Stop, create the idea, reply with the card link and a "move it" link. Treat the URL as
- * untrusted (SSRF guard C-20; captions are data, not instructions C-21).
+ * A link texted to our number (FR-82, FR-83, FR-L2, LB-7): filed into the sender's most recently
+ * active trip, else their library; resolved in the background. See server/text-intake.ts.
  */
 export async function onTextedIdea(phone: string, url: string): Promise<{ reply: string }> {
-  console.info(`[hooks] onTextedIdea from ${phone.slice(-4)}: ${url.slice(0, 200)} (not wired yet)`);
-  return { reply: "Got it! We'll add that to your most recent trip." };
+  const db = await getDb();
+  const { handleTextedIdea } = await import("@/server/text-intake");
+  const { enqueue } = await import("@/server/jobs");
+  const out = await handleTextedIdea(db, phone, url);
+  if (out.job) await enqueue(out.job);
+  return { reply: out.reply };
 }
 
 /**
- * A photo texted to our number (FR-82): treated as a receipt.
- * TODO(expenses slice §6.5): download media from Twilio (authenticated), read the receipt, file it
- * under the most recently active trip, and reply with a split link.
+ * A draft expense from a texted receipt photo (FR-82, §6.5).
+ * The stored photo becomes a receipt draft for the sender (server/receipts.ts), the AI read
+ * runs after the response, and the reply links to the confirm-and-split form (the uploader
+ * confirms the total before anything reaches balances, E-7). Never throws for bad photos.
  */
+export async function onReceiptDraft(d: {
+  tripId: string;
+  memberId: string;
+  storagePath: string;
+  contentType: string;
+  receivedAt: Date;
+}): Promise<{ url?: string | null } | void> {
+  try {
+    const db = await getDb();
+    const { draftFromStoredReceipt, readReceiptJob } = await import("@/server/receipts");
+    const draft = await draftFromStoredReceipt(db, d);
+    if (!draft) return;
+    const { after } = await import("next/server");
+    try {
+      after(() => readReceiptJob(db, draft.uploadId));
+    } catch {
+      void readReceiptJob(db, draft.uploadId); // outside a request scope (jobs/tests)
+    }
+    const { appUrl } = await import("@/lib/env");
+    return { url: `${appUrl()}/t/${d.tripId}/money/new?receipt=${draft.uploadId}` };
+  } catch (err) {
+    console.error("[hooks] receipt draft failed", err);
+  }
+}
+
+/** A photo texted to our number (FR-82): treated as a receipt for the most recently active trip. */
 export async function onTextedReceipt(phone: string, mediaUrls: string[]): Promise<{ reply: string }> {
-  console.info(`[hooks] onTextedReceipt from ${phone.slice(-4)}: ${mediaUrls.length} file(s) (not wired yet)`);
-  return { reply: "Got it! We'll add that receipt to your most recent trip." };
+  const db = await getDb();
+  const { handleTextedReceipt } = await import("@/server/text-intake");
+  const { fetchTwilioMedia, storeReceiptMedia } = await import("@/lib/messaging/media");
+  return handleTextedReceipt(db, phone, mediaUrls, {
+    fetchMedia: (u) => fetchTwilioMedia(u),
+    store: storeReceiptMedia,
+    onDraft: onReceiptDraft,
+  });
 }
 
 /**
  * Someone replied WRONG (J-4, FR-16): texts to the number are already stopped and its personal
- * links revoked. Alert each affected trip's organizers.
- * TODO(messaging slice §6.6): push/text the organizers ("Texts to Sam may be reaching someone
- * else"). For now this writes an audit entry per trip, which an organizer view can surface.
+ * links revoked. Log it per trip and alert each trip's organizers.
  */
 export async function onWrongNumber(e: { members: { memberId: string; tripId: string }[] }): Promise<void> {
   if (e.members.length === 0) return;
@@ -44,5 +76,8 @@ export async function onWrongNumber(e: { members: { memberId: string; tripId: st
       })),
     ),
   );
-  console.warn(`[hooks] WRONG reported for ${e.members.length} membership(s); organizers need alerting`);
+  const { alertOrganizersWrongNumber } = await import("@/server/notify");
+  await alertOrganizersWrongNumber(db, e.members).catch((err) =>
+    console.error("[hooks] organizer WRONG alert failed", err),
+  );
 }

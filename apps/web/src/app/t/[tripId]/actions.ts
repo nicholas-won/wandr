@@ -6,7 +6,9 @@ import { z } from "zod";
 import { AuthError, requireFull } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { tripContext } from "@/server/context";
-import { addIdea, addListiclePicks, fixIdea, resolveIdeaJob } from "@/server/ideas";
+import { addIdea, addListiclePicks, fixIdea } from "@/server/ideas";
+import { EVENTS } from "@/inngest/client";
+import { enqueue } from "@/server/jobs";
 import { freshLinkFor, inviteMember } from "@/server/invites";
 import { track } from "@/server/analytics";
 import { castVote, getTripView, markNoticeSeen } from "@/server/trips";
@@ -57,7 +59,7 @@ export async function addIdeaAction(tripId: string, raw: string): Promise<Action
       return { ok: false, error: "Confirm your number to add ideas.", signin: routes.signin(routes.trip(tripId)) };
     }
     const { ideaId } = await addIdea(db, claims, { tripId, memberId: view.me.memberId, raw });
-    after(() => resolveIdeaJob(db, ideaId));
+    await enqueue({ name: EVENTS.ideaAdded, data: { ideaId } });
     after(() => track(db, { name: "idea_added", tripId, memberId: view.me.memberId, props: { ideaId, via: "web" } }));
     refresh();
     return { ok: true };

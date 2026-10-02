@@ -39,7 +39,7 @@ import {
   setGuestOfHonorInSplits,
   updateExpense,
 } from "../expenses";
-import { createReceiptUpload, getReceiptUpload, openReceiptImage, readReceiptJob } from "../receipts";
+import { createReceiptUpload, draftFromStoredReceipt, getReceiptUpload, openReceiptImage, readReceiptJob } from "../receipts";
 import { setGuestOfHonor as setGuestOfHonorFlag } from "../surprise";
 
 type Person = { userId: string; memberId: string; claims: { sub: string } };
@@ -473,6 +473,30 @@ describe("receipts (FR-60/61, E-31)", () => {
     expect(again.duplicateOfExpenseId).toBe(id);
     const r = await add(s.d, Ben!, s.tripId, { merchant: "Other", totalMinor: 1, receiptUploadId: again.uploadId });
     expect(r.ok).toBe(false);
+  });
+
+  it("a texted receipt photo becomes the sender's draft (FR-82 → FR-60)", async () => {
+    const s = await setup(["Olivia", "Ben"]);
+    const storage = localStorageAdapter(mkdtempSync(join(tmpdir(), "wandr-rcpt-")));
+    const stored = `receipts/${s.tripId}/${randomUUID()}.jpg`;
+    const draft = await draftFromStoredReceipt(
+      s.d,
+      { tripId: s.tripId, memberId: s.p.Ben!.memberId, storagePath: stored },
+      storage,
+      async (p) => (p === stored ? JPEG : null),
+    );
+    expect(draft).not.toBeNull();
+    expect((await getReceiptUpload(s.d, s.p.Ben!.claims, s.tripId, draft!.uploadId))!.status).toBe("reading");
+    expect(await getReceiptUpload(s.d, s.p.Olivia!.claims, s.tripId, draft!.uploadId)).toBeNull();
+    // Not a photo, or a path for another trip → no draft.
+    expect(
+      await draftFromStoredReceipt(s.d, { tripId: s.tripId, memberId: s.p.Ben!.memberId, storagePath: stored }, storage, async () =>
+        new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+      ),
+    ).toBeNull();
+    expect(
+      await draftFromStoredReceipt(s.d, { tripId: s.tripId, memberId: s.p.Ben!.memberId, storagePath: `receipts/${randomUUID()}/${randomUUID()}.jpg` }, storage, async () => JPEG),
+    ).toBeNull();
   });
 
   it("without a model an image-only receipt falls back to manual entry", async () => {

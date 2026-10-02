@@ -5,6 +5,7 @@ import { Brand } from "@/components/brand";
 import { AvatarStack } from "@/components/ui/avatar";
 import { visibleSections } from "@/components/trip/sections";
 import { TripNav } from "@/components/trip/trip-nav";
+import { StageChips } from "@/components/trip/stage-chips";
 import { routes } from "@/lib/routes";
 import { loadTripView } from "@/server/context";
 
@@ -59,6 +60,7 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
             </Link>
             <h1 className="font-display text-2xl font-extrabold leading-tight tracking-tight">{view.trip.name}</h1>
             {people}
+            <StageChips tripId={tripId} vertical />
           </div>
           <TripNav items={items} base={base} vertical />
         </div>
@@ -74,6 +76,7 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
             {people}
           </div>
           <h1 className="font-display text-3xl font-extrabold leading-tight tracking-tight">{view.trip.name}</h1>
+          <StageChips tripId={tripId} />
           <TripNav items={items} base={base} />
         </header>
         {children}

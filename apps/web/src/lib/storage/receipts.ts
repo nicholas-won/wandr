@@ -24,7 +24,7 @@ export interface ReceiptStorage {
   signedUrl(path: string, expiresInSeconds: number): Promise<string | null>;
 }
 
-const SAFE_PATH = /^[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|webp|gif|heic)$/;
+const SAFE_PATH = /^[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|webp|gif|heic|heif)$/;
 
 function assertPath(path: string) {
   if (!SAFE_PATH.test(path)) throw new Error("invalid storage path");

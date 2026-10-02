@@ -6,6 +6,7 @@
  * - "full":  a verified person (after an SMS/email code). Full access to their trips.
  * - "links": personal-link grants (FR-5): view + vote only, per trip, bound to this device.
  * - "otp":   a pending code challenge (10 minutes).
+ * - "boards": shared-board link grants (FR-L14): view + add only, per board.
  */
 import { jwtVerify, SignJWT, type JWTPayload } from "jose";
 import { sessionKey } from "./secret";
@@ -45,7 +46,11 @@ export type OtpChallengePayload = {
   next?: string;
 };
 
-export type CookiePayload = FullSessionPayload | LinkSessionPayload | OtpChallengePayload;
+/** Shared-board personal-link grants (FR-L14): view + add only, per board. */
+export type BoardLinkGrant = { boardMemberId: string; boardId: string; linkId: string };
+export type BoardLinkSessionPayload = { k: "boards"; grants: BoardLinkGrant[] };
+
+export type CookiePayload = FullSessionPayload | LinkSessionPayload | OtpChallengePayload | BoardLinkSessionPayload;
 
 export async function signPayload(
   payload: CookiePayload,

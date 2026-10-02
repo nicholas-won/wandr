@@ -8,6 +8,8 @@
  *    stored for an editable prefill; nothing reaches balances until the uploader saves (E-7).
  */
 import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { asService, expenses, members, receiptUploads, withSession, type Claims, type Db } from "@wandr/db";
 import { createClaudeModel, readReceipt, type Receipt, type ReceiptValidation, type StructuredModel } from "@wandr/ai";
@@ -168,4 +170,57 @@ export async function openReceiptImage(
   if (signed) return { redirect: signed };
   const obj = await storage.get(row.path);
   return obj ? { bytes: obj.bytes, contentType: obj.contentType } : null;
+}
+
+/**
+ * A receipt photo texted to our number (FR-82 → FR-60). Messaging already stored it
+ * (`receipts/<trip>/<uuid>.<ext>`, see lib/messaging/media.ts); this turns it into the same
+ * draft as a web upload, owned by the sender, ready to read and confirm (E-7). Runs as the
+ * service: the webhook has already matched the phone to an active member of the trip.
+ * Returns null for files that aren't photos (e.g. PDFs).
+ */
+export async function draftFromStoredReceipt(
+  db: Db,
+  d: { tripId: string; memberId: string; storagePath: string },
+  storage: ReceiptStorage = receiptStorage(),
+  readLocal: (path: string) => Promise<Uint8Array | null> = defaultReadLocal,
+): Promise<{ uploadId: string } | null> {
+  const name = d.storagePath.replace(/^receipts\//, "");
+  if (!/^[0-9a-f-]{36}\/[0-9a-f-]{36}\.[a-z]+$/.test(name) || !name.startsWith(`${d.tripId}/`)) return null;
+  const bytes = storage.kind === "supabase" ? ((await storage.get(name).catch(() => null))?.bytes ?? null) : await readLocal(d.storagePath);
+  if (!bytes || bytes.length > MAX_RECEIPT_BYTES) return null;
+  const kind = sniffImage(bytes);
+  if (!kind) return null;
+  // Supabase: same private bucket, nothing copied. Local dev: copy into the receipts store.
+  const path = storage.kind === "supabase" ? name : `${d.tripId}/${name.split("/")[1]!.replace(/\.[a-z]+$/, "")}.${kind.ext}`;
+  if (storage.kind === "local") await storage.put(path, bytes, kind.contentType);
+  const id = randomUUID();
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  const ok = await asService(db, async (tx) => {
+    const [m] = await tx
+      .select({ id: members.id })
+      .from(members)
+      .where(and(eq(members.id, d.memberId), eq(members.tripId, d.tripId), eq(members.status, "active")));
+    if (!m) return false;
+    await tx.insert(receiptUploads).values({
+      id,
+      tripId: d.tripId,
+      uploadedByMemberId: d.memberId,
+      storagePath: path,
+      contentType: kind.contentType,
+      byteSize: bytes.length,
+      imageHash: hash,
+    });
+    return true;
+  });
+  return ok ? { uploadId: id } : null;
+}
+
+async function defaultReadLocal(storagePath: string): Promise<Uint8Array | null> {
+  if (!/^receipts\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.[a-z]+$/.test(storagePath)) return null;
+  try {
+    return new Uint8Array(await readFile(join(process.cwd(), ".data", "media", storagePath)));
+  } catch {
+    return null;
+  }
 }

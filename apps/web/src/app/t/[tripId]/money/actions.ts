@@ -10,7 +10,9 @@ import { z } from "zod";
 import { money } from "@wandr/core";
 import { AuthError, requireFull } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
+import { EVENTS } from "@/inngest/client";
 import { tripContext } from "@/server/context";
+import { enqueue } from "@/server/jobs";
 import {
   applyDropOutDecisions,
   applyLateJoiner,
@@ -39,6 +41,15 @@ const moneyPath = (tripId: string) => `${routes.trip(tripId)}/money`;
 async function full(tripId: string) {
   await requireFull();
   return tripContext(tripId);
+}
+
+/** FR-68: everyone involved hears about changes (messaging slice, throttled there, FR-84). */
+async function notifyChange(tripId: string, expenseId: string) {
+  try {
+    await enqueue({ name: EVENTS.expenseChanged, data: { tripId, expenseId } });
+  } catch (e) {
+    console.error("[money] notify failed", e);
+  }
 }
 
 const MONEY_MESSAGES: Partial<Record<string, string>> = {
@@ -118,6 +129,7 @@ export async function createExpenseAction(tripId: string, form: CreateExpenseFor
       difference: (input.difference ?? null) as money.DifferencePolicy | null,
     });
     if (!r.ok) return { ok: false, error: "This looks like an expense that's already here.", duplicates: r.duplicates };
+    await notifyChange(tripId, r.expenseId);
     refresh();
     return {
       ok: true,
@@ -146,6 +158,7 @@ export async function updateExpenseAction(tripId: string, expenseId: string, pat
     const input = updateSchema.parse(patch);
     const { db, claims } = await full(tripId);
     await updateExpense(db, claims, { tripId, expenseId: id.parse(expenseId), ...input });
+    await notifyChange(tripId, expenseId);
     refresh();
     return { ok: true, message: "Saved. Balances updated." };
   } catch (e) {
@@ -165,6 +178,7 @@ export async function correctExpenseAction(
       .parse(form);
     const { db, claims } = await full(tripId);
     await correctLockedExpense(db, claims, { tripId, expenseId: id.parse(expenseId), ...input });
+    await notifyChange(tripId, expenseId);
     refresh();
     return { ok: true, message: "Correction added. Everyone's balance is updated." };
   } catch (e) {
@@ -176,6 +190,7 @@ export async function deleteExpenseAction(tripId: string, expenseId: string): Pr
   try {
     const { db, claims } = await full(tripId);
     await deleteExpense(db, claims, tripId, id.parse(expenseId));
+    await notifyChange(tripId, expenseId);
     refresh();
     return { ok: true, message: "Expense deleted." };
   } catch (e) {
@@ -199,6 +214,7 @@ export async function refundAction(tripId: string, expenseId: string, amountMino
   try {
     const { db, claims } = await full(tripId);
     const r = await recordRefund(db, claims, { tripId, expenseId: id.parse(expenseId), amountMinor: minor.parse(amountMinor) });
+    await notifyChange(tripId, r.expenseId);
     refresh();
     return { ok: true, expenseId: r.expenseId, message: "Refund recorded." };
   } catch (e) {

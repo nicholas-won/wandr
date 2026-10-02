@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Let local testing on 127.0.0.1 reach dev resources (dev only).
+  allowedDevOrigins: ["127.0.0.1"],
   // Workspace packages ship TypeScript source.
   transpilePackages: ["@wandr/core", "@wandr/db", "@wandr/ai"],
   // Native/wasm DB drivers stay out of the server bundle.

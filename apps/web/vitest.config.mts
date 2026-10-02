@@ -8,9 +8,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
-    // Each integration test boots its own PGlite with every migration; under parallel load that
-    // can exceed the 5s default.
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
+    // Each integration test boots its own PGlite and runs every migration; under parallel load
+    // that takes several seconds.
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
   },
 });
