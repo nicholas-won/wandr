@@ -22,6 +22,11 @@ Build only what §7 lists for Phase 1. **Not in the POC:**
 - Payments, the group card, B2B features
 - Web push
 
+### Desktop vs phone (D64)
+- **Desktop** is a planning workspace: landing page with calls to action for visitors, classic setup (destinations + dates) first, sidebar trip shell, wide multi-column views.
+- **Phone** is capture-first: paste a link, vote from a text. Keep phone layouts single-column.
+- Register trip sections in `apps/web/src/components/trip/sections.ts`, not in the layout.
+
 ### Build order (vertical slices; each one deployable)
 1. **Foundation:** monorepo, Next.js app, Supabase project, Drizzle schema for trips, members, Stops, ideas and votes, Row Level Security policies, CI with tests.
 2. **Hero slice, "Drop a TikTok, get a vote"** (must work well for a **duo** trip; that's the first real test): paste a link → AI-resolved idea card (FR-20–26, FR-30–35) → personal invite links (FR-4/5) → blind voting with reveal (FR-40–43) → ranking by approval % (FR-44).
@@ -33,6 +38,9 @@ Build only what §7 lists for Phase 1. **Not in the POC:**
 7. **Plan optimizer, "Arrange my days"** (§6.11): a deterministic scheduling engine in `packages/core`; Claude only writes the explanations.
 8. **Bachelor/bachelorette mode:** guest of honor, surprise mode (§6.7).
 9. **Instrumentation:** commercial-intent and spend tracking (§11, §12).
+
+### Status (2 Oct 2026)
+All nine slices plus 2b have a first version on `feat/foundation`, with unit, RLS-integration and Playwright tests. Spec gaps found while building are in `docs/open-questions.md`, each with a strict provisional default awaiting the founder's call. External services (Supabase, Twilio, Claude, Google, Inngest, PostHog, Sentry) are wired but optional: with no env vars the app runs on PGlite with console texts and heuristic AI.
 
 ## Trip sizes (REQUIREMENTS.md §6.10)
 
