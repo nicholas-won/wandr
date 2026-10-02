@@ -7,34 +7,44 @@ const field =
   "h-12 w-full rounded-xl border border-input bg-card px-4 text-base outline-none focus:ring-2 focus:ring-ring";
 
 /** FR-1(b) classic setup. Every field optional (P1); the desktop planner's main way in. */
-export function ClassicSetupForm({ className, cta = "Start planning" }: { className?: string; cta?: string }) {
+export function ClassicSetupForm({
+  className,
+  cta = "Start planning",
+  idPrefix = "setup",
+}: {
+  className?: string;
+  cta?: string;
+  /** Unique per page: the landing page renders this form twice. */
+  idPrefix?: string;
+}) {
+  const id = (k: string) => `${idPrefix}-${k}`;
   return (
     <form action={startClassicTripAction} className={cn("space-y-3", className)}>
       <div className="space-y-1">
-        <label htmlFor="destinations" className="text-sm font-semibold">
+        <label htmlFor={id("destinations")} className="text-sm font-semibold">
           Where to?
         </label>
-        <input id="destinations" name="destinations" placeholder="Lisbon, Porto" autoComplete="off" className={field} />
+        <input id={id("destinations")} name="destinations" placeholder="Lisbon, Porto" autoComplete="off" className={field} />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <label htmlFor="start" className="text-sm font-semibold">
+          <label htmlFor={id("start")} className="text-sm font-semibold">
             From <span className="font-normal text-muted-foreground">(optional)</span>
           </label>
-          <input id="start" name="start" type="date" className={field} />
+          <input id={id("start")} name="start" type="date" className={field} />
         </div>
         <div className="space-y-1">
-          <label htmlFor="end" className="text-sm font-semibold">
+          <label htmlFor={id("end")} className="text-sm font-semibold">
             To
           </label>
-          <input id="end" name="end" type="date" className={field} />
+          <input id={id("end")} name="end" type="date" className={field} />
         </div>
       </div>
       <div className="space-y-1">
-        <label htmlFor="name" className="text-sm font-semibold">
+        <label htmlFor={id("name")} className="text-sm font-semibold">
           Trip name <span className="font-normal text-muted-foreground">(optional)</span>
         </label>
-        <input id="name" name="name" placeholder="Sam's 30th" autoComplete="off" className={field} />
+        <input id={id("name")} name="name" placeholder="Sam's 30th" autoComplete="off" className={field} />
       </div>
       <Button type="submit" size="lg" block>
         {cta} <ArrowRight aria-hidden />
@@ -45,16 +55,25 @@ export function ClassicSetupForm({ className, cta = "Start planning" }: { classN
 }
 
 /** FR-1(a): paste anything to start. The phone's main way in. */
-export function PasteStartForm({ className, label = "Paste a TikTok or link to start" }: { className?: string; label?: string }) {
+export function PasteStartForm({
+  className,
+  label = "Paste a TikTok or link to start",
+  idPrefix = "paste",
+}: {
+  className?: string;
+  label?: string;
+  idPrefix?: string;
+}) {
+  const inputId = `${idPrefix}-raw`;
   return (
     <form action={startTripAction} className={cn("space-y-2", className)}>
-      <label htmlFor="raw" className="text-sm font-semibold">
+      <label htmlFor={inputId} className="text-sm font-semibold">
         {label}
       </label>
       <div className="flex items-center gap-2 rounded-full border border-input bg-card p-1.5 pl-4 shadow-sm focus-within:ring-2 focus-within:ring-ring">
         <Link2 className="size-5 shrink-0 text-muted-foreground" aria-hidden />
         <input
-          id="raw"
+          id={inputId}
           name="raw"
           autoComplete="off"
           placeholder="https://www.tiktok.com/…"

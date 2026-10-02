@@ -139,7 +139,7 @@ export function IdeaCard({
             {card.splitOpinions ? <Badge variant="accent">{card.splitOpinions}</Badge> : null}
             {card.sourceUrl ? (
               <a
-                href={card.sourceUrl}
+                href={`/r/${card.id}?t=${tripId}`}
                 target="_blank"
                 rel="noopener noreferrer nofollow"
                 className="inline-flex items-center gap-1 text-muted-foreground underline-offset-2 hover:underline"
