@@ -689,6 +689,27 @@ export async function transferOwnership(db: Db, args: { userId: string; tripId: 
   });
 }
 
+/** Members the owner can hand the trip to: active, verified, not managed (FR-2). Owner only. */
+export async function ownershipCandidates(db: Db, userId: string, tripId: string): Promise<{ id: string; displayName: string }[]> {
+  const me = await myMember(db, userId, tripId);
+  if (!me || me.role !== "owner") return [];
+  return withSession(db, { sub: userId }, (tx) =>
+    tx
+      .select({ id: members.id, displayName: members.displayName })
+      .from(members)
+      .where(
+        and(
+          eq(members.tripId, tripId),
+          eq(members.status, "active"),
+          ne(members.id, me.id),
+          isNull(members.managedByMemberId),
+          sql`${members.userId} is not null`,
+        ),
+      )
+      .orderBy(asc(members.createdAt)),
+  );
+}
+
 type SuccessionRow = {
   memberId: string;
   role: MemberRole;
