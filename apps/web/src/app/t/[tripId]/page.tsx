@@ -1,8 +1,14 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { CalendarDays } from "lucide-react";
 import { AddIdea } from "@/components/trip/add-idea";
 import { AutoRefresh } from "@/components/trip/auto-refresh";
 import { IdeaCard } from "@/components/trip/idea-card";
-import { notFound } from "next/navigation";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { routes } from "@/lib/routes";
 import { loadTripView, tripContext } from "@/server/context";
+import type { IdeaCard as IdeaCardModel } from "@/server/cards";
 
 export default async function IdeasPage({ params }: PageProps<"/t/[tripId]">) {
   const { tripId } = await params;
@@ -14,40 +20,97 @@ export default async function IdeasPage({ params }: PageProps<"/t/[tripId]">) {
   const unvoted = view.ideas.filter((c) => !c.myVote && !c.processing && !c.notAPlace).length;
   const canAdd = !!session.user;
   const other = view.members.find((m) => m.id !== view.me.memberId);
+  const topPicks = view.ideas.filter((c) => c.rank !== null && (c.myVote === "must" || c.myVote === "down")).slice(0, 5);
 
   return (
-    <main className="space-y-4">
-      <AutoRefresh active={processing} />
-      {canAdd ? <AddIdea tripId={tripId} autoFocus={view.ideas.length === 0} /> : null}
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8">
+      <main className="space-y-4">
+        <AutoRefresh active={processing} />
+        {canAdd ? <AddIdea tripId={tripId} autoFocus={view.ideas.length === 0} /> : null}
 
-      {size === "duo" && !view.me.noticesSeen.includes("duo_votes_visible") ? (
-        <p className="rounded-xl bg-secondary px-4 py-3 text-sm text-secondary-foreground">
-          In 2-person trips, you and {other?.displayName ?? "your travel buddy"} see each other&apos;s votes.
-        </p>
-      ) : null}
-
-      {size === "group" && unvoted > 0 ? (
-        <p className="text-sm font-semibold text-primary">
-          {unvoted} {unvoted === 1 ? "idea needs" : "ideas need"} your vote
-        </p>
-      ) : null}
-
-      {view.ideas.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">
-          <p className="font-display text-xl font-bold text-foreground">Drop a TikTok, get a vote.</p>
-          <p className="mt-1 text-sm">
-            Paste any link (TikTok, Instagram, Google Maps) or type an idea. We&apos;ll find the place.
+        {size === "duo" && !view.me.noticesSeen.includes("duo_votes_visible") ? (
+          <p className="rounded-xl bg-secondary px-4 py-3 text-sm text-secondary-foreground">
+            In 2-person trips, you and {other?.displayName ?? "your travel buddy"} see each other&apos;s votes.
           </p>
+        ) : null}
+
+        {size === "group" && unvoted > 0 ? (
+          <p className="text-sm font-semibold text-primary">
+            {unvoted} {unvoted === 1 ? "idea needs" : "ideas need"} your vote
+          </p>
+        ) : null}
+
+        {view.ideas.length === 0 ? (
+          <EmptyIdeas />
+        ) : (
+          <ul className="grid gap-3 xl:grid-cols-2">
+            {view.ideas.map((card) => (
+              <li key={card.id}>
+                <IdeaCard tripId={tripId} card={card} size={size} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </main>
+
+      {/* Desktop planning rail */}
+      <aside className="hidden lg:block">
+        <div className="sticky top-8 space-y-4">
+          <TopPicks picks={topPicks} size={size} />
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Ready to plan the days?</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Turn decided ideas into a day-by-day plan with travel times.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <Link href={`${routes.trip(tripId)}/plan`} className={buttonVariants({ variant: "outline", block: true, size: "sm" })}>
+                <CalendarDays aria-hidden /> Open the plan
+              </Link>
+            </CardContent>
+          </Card>
         </div>
-      ) : (
-        <ul className="space-y-3">
-          {view.ideas.map((card) => (
-            <li key={card.id}>
-              <IdeaCard tripId={tripId} card={card} size={size} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
+      </aside>
+    </div>
+  );
+}
+
+function TopPicks({ picks, size }: { picks: IdeaCardModel[]; size: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{size === "solo" ? "Your must-dos" : "Top picks so far"}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {picks.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Vote on a few ideas and the favorites show up here.</p>
+        ) : (
+          <ol className="space-y-2">
+            {picks.map((p, i) => (
+              <li key={p.id} className="text-sm">
+                <span className="mr-2 font-semibold text-muted-foreground">{i + 1}.</span>
+                <span className="font-semibold">{p.title}</span>
+                {p.tallyLabel ? <span className="block pl-5 text-xs text-muted-foreground">{p.tallyLabel}</span> : null}
+              </li>
+            ))}
+          </ol>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmptyIdeas() {
+  return (
+    <div className="rounded-xl border border-dashed p-8 text-center text-muted-foreground lg:p-14">
+      <p className="font-display text-xl font-bold text-foreground">Drop a TikTok, get a vote.</p>
+      <p className="mt-1 text-sm">
+        Paste any link (TikTok, Instagram, Google Maps, a blog post) or type an idea. We&apos;ll find the place.
+      </p>
+      <p className="mt-3 hidden text-sm lg:block">
+        Tip: on your phone, copy a TikTok&apos;s share link and paste it here, or text it to the trip&apos;s number.
+      </p>
+    </div>
   );
 }
