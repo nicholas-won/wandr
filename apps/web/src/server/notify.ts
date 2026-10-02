@@ -12,6 +12,7 @@ import { and, desc, eq, gt, gte, inArray, isNull, isNotNull, like, lte, or, sql 
 import {
   asService,
   expenseAdjustments,
+  expensePayers,
   expenses,
   expenseShares,
   ideas,
@@ -425,10 +426,16 @@ export async function sendExpenseTexts(db: Db, tripId: string, expenseId: string
       .select()
       .from(expenses)
       .where(and(eq(expenses.id, expenseId), eq(expenses.tripId, tripId)));
-    if (!expense) return null;
+    if (!expense || expense.personalMemberId) return null; // Q23c: personal expenses never text anyone
     const people = await tripPeople(tx, tripId);
     const [trip] = await tx.select({ name: trips.name }).from(trips).where(eq(trips.id, tripId));
-    const all = await tx.select().from(expenses).where(and(eq(expenses.tripId, tripId), isNull(expenses.deletedAt)));
+    const all = await tx
+      .select()
+      .from(expenses)
+      .where(and(eq(expenses.tripId, tripId), isNull(expenses.deletedAt), isNull(expenses.personalMemberId)));
+    const payerRows = all.length
+      ? await tx.select().from(expensePayers).where(inArray(expensePayers.expenseId, all.map((e) => e.id)))
+      : [];
     const shares = all.length
       ? await tx.select().from(expenseShares).where(inArray(expenseShares.expenseId, all.map((e) => e.id)))
       : [];
@@ -445,7 +452,7 @@ export async function sendExpenseTexts(db: Db, tripId: string, expenseId: string
       .where(eq(expenseAdjustments.tripId, tripId));
     const pays = await tx.select().from(payments).where(eq(payments.tripId, tripId));
     const thisShares = await tx.select().from(expenseShares).where(eq(expenseShares.expenseId, expenseId));
-    return { expense, people, tripName: trip?.name ?? "", all, shares, adjustments, pays, thisShares };
+    return { expense, people, tripName: trip?.name ?? "", all, shares, payerRows, adjustments, pays, thisShares };
   });
   if (!ctx) return { texted: [] };
   const size = sizeOf(ctx.people);
@@ -472,6 +479,8 @@ export async function sendExpenseTexts(db: Db, tripId: string, expenseId: string
           currency: e.currency,
           totalMinor: e.totalMinor,
           payerId: e.paidByMemberId,
+          // Q23a: several payers per bill.
+          payers: ctx.payerRows.filter((p) => p.expenseId === e.id).map((p) => ({ memberId: p.memberId, paidMinor: p.paidMinor })),
           shares: ctx.shares
             .filter((s) => s.expenseId === e.id)
             .map((s) => ({ memberId: s.memberId, shareMinor: s.shareMinor })),
