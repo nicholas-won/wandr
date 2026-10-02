@@ -7,7 +7,6 @@
  */
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { after } from "next/server";
 import { getDb } from "@wandr/db";
 import { AuthError, getSession, requireFull } from "@/lib/auth/session";
 import { cleanDisplayName, requestCode, verifyCode } from "@/lib/auth/signin";
@@ -18,7 +17,6 @@ import {
   inspectGroupLink,
   joinViaGroupLink,
   MembershipError,
-  notifyJoinRequest,
   type JoinOutcome,
 } from "@/server/membership";
 import type { JoinState } from "./state";
@@ -40,11 +38,9 @@ async function outcome(prev: JoinState, r: JoinOutcome): Promise<JoinState> {
       redirect(routes.trip(r.tripId));
     case "confirm_name":
       return { ...prev, step: "confirm", expectedName: r.expectedName, memberId: r.memberId, error: undefined };
-    case "pending": {
-      const db = await getDb();
-      after(() => notifyJoinRequest(db, r.tripId, r.memberId).catch((e) => console.error("[join] notify failed", e)));
+    case "pending":
+      // D65: organizers see requests in the app (count on the trip's People link), not by text.
       return { ...prev, step: "result", result: "pending", error: undefined };
-    }
     default:
       return { ...prev, step: "result", result: r.kind, error: undefined };
   }

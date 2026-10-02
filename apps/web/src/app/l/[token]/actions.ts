@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { asService, getDb } from "@wandr/db";
 import { acceptPersonalLink, declinePersonalLink, redeemPersonalLink } from "@/lib/auth/personal-link";
 import { getSession } from "@/lib/auth/session";
+import { routes } from "@/lib/routes";
 import { attachVerifiedIdentity } from "@/server/membership";
 import type { OpenLinkState } from "./state";
 
@@ -36,7 +37,8 @@ export async function acceptLinkAction(token: string, prev: OpenLinkState, form:
   const r = await acceptPersonalLink(token, typeof raw === "string" ? raw : null);
   if (!r.ok) return { ...prev, error: r.error };
   await attachIfSignedIn();
-  redirect(r.redirectTo);
+  // D67/Q1: "Confirm my number" goes to the code step; "Skip for now" opens the trip (view + vote).
+  redirect(form.get("then") === "signin" ? routes.signin(r.redirectTo) : r.redirectTo);
 }
 
 /** Q37 "Not me": nothing joins; the link is released from this device. */

@@ -81,7 +81,7 @@ export function OpenLink({ token, status }: { token: string; status: LinkStatus 
   }
 
   if (state.step && state.preview) {
-    return <ConfirmInvite step={state.step} preview={state.preview} action={action} pending={pending} badName={state.error === "bad_name"} />;
+    return <ConfirmInvite step={state.step} preview={state.preview} action={action} pending={pending} badName={state.error === "bad_name" ? state : null} />;
   }
 
   return (
@@ -116,11 +116,40 @@ function ConfirmInvite({
   preview: LinkPreview;
   action: (form: FormData) => void;
   pending: boolean;
-  badName: boolean;
+  /** The server state that rejected the name (a new object on every failed submit). */
+  badName: OpenLinkState | null;
 }) {
-  const [editing, setEditing] = React.useState(badName);
+  // D67 (Partiful pattern): "What's your name?" → "Confirm your number" (skippable for view + vote).
+  const [name, setName] = React.useState(preview.yourName);
+  const [phase, setPhase] = React.useState<"name" | "phone">("name");
   const invite = step === "accept_invite";
   const others = preview.people;
+
+  React.useEffect(() => {
+    if (badName) setPhase("name");
+  }, [badName]);
+
+  if (phase === "phone") {
+    return (
+      <form action={action} className="flex flex-col gap-4">
+        <input type="hidden" name="intent" value="accept" />
+        <input type="hidden" name="name" value={name} />
+        <div>
+          <h1 className="font-display text-3xl font-extrabold tracking-tight">Confirm your number</h1>
+          <p className="mt-2 text-muted-foreground">
+            You can vote right away. Confirm your number to also add ideas, comment and help plan.
+          </p>
+        </div>
+        <Button type="submit" name="then" value="signin" size="lg" block loading={pending}>
+          Confirm my number
+        </Button>
+        <Button type="submit" name="then" value="trip" variant="ghost" block disabled={pending}>
+          Skip for now
+        </Button>
+      </form>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -137,32 +166,33 @@ function ConfirmInvite({
         </ul>
       </div>
 
-      <form action={action} className="flex flex-col gap-4">
-        <input type="hidden" name="intent" value="accept" />
-        {editing ? (
-          <div className="space-y-1">
-            <Label htmlFor="link-name">Your name</Label>
-            <Input id="link-name" name="name" defaultValue={preview.yourName} maxLength={40} autoComplete="given-name" required />
-            {badName ? (
-              <p role="alert" className="text-sm text-destructive">
-                Add your name (up to 40 characters).
-              </p>
-            ) : null}
-          </div>
-        ) : (
-          <p className="text-lg">
-            You&apos;re <span className="font-semibold">{preview.yourName}</span>?{" "}
-            <button
-              type="button"
-              className="text-sm font-semibold text-primary underline-offset-4 hover:underline"
-              onClick={() => setEditing(true)}
-            >
-              Edit name
-            </button>
-          </p>
-        )}
-        <Button type="submit" size="lg" block loading={pending}>
-          {invite ? "Accept invitation" : "That's me, open the trip"}
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          // Nothing is sent yet: the next step submits the accept POST with this name.
+          e.preventDefault();
+          if (name.trim()) setPhase("phone");
+        }}
+      >
+        <div className="space-y-1">
+          {/* D67/C-JR8: the invitee types their own name; the organizer's spelling is only a suggestion. */}
+          <Label htmlFor="link-name">What&apos;s your name?</Label>
+          <Input
+            id="link-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={40}
+            autoComplete="given-name"
+            required
+          />
+          {badName ? (
+            <p role="alert" className="text-sm text-destructive">
+              Add your name (up to 40 characters).
+            </p>
+          ) : null}
+        </div>
+        <Button type="submit" size="lg" block>
+          {invite ? "Accept invitation" : "That's me"}
         </Button>
       </form>
 

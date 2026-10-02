@@ -8,21 +8,21 @@ move the answer into REQUIREMENTS.md §13 and update the code.
 
 | # | Question | Provisional default |
 |---|---|---|
-| Q1 | FR-5 personal link: can a link session add ideas, comment, fix idea details, set attendance? (D5 says "Everything"; P8 lists "Mark attendance") | Strict: view + vote only; everything else asks for the SMS code |
+| Q1 | FR-5 personal link: can a link session add ideas, comment, fix idea details, set attendance? (D5 says "Everything"; P8 lists "Mark attendance") | Strict: view + vote only; everything else asks for the SMS code. **DECIDED (D67):** view + vote only. First open: "What's your name?" (invite name prefilled, editable) then "Confirm your number" (skippable). After 2 votes a dismissible prompt (at most once a day) asks to confirm the number to unlock ideas, comments and the rest |
 | Q2 | FR-74 group budget band definition | [lowest min, lowest max], rounded outward to 1 significant figure |
 | Q3 | What does a budget range measure (trip total vs per activity)? | Per-person price of an idea, same currency only |
 | Q4 | Duo budget tag when over both budgets | Adds "over both budgets" label |
 | Q5 | `not_attending` members (M-9) | Don't count toward size; keep view, money view, record payment |
-| Q6 | Pass count in small groups (DN-13) | Follow FR-42: show Pass count |
-| Q7 | "Split opinions" label to people who haven't voted (D42 vs FR-41) | Shown only after you vote (blind rule wins) |
-| Q8 | FR-T4 newcomers seeing earlier duo votes | Must-do/Down names shown (group rules), Pass as count only |
-| Q9 | Solo → group directly: notice? Solo Skip votes visible to new partner? | No notice for solo→group; carried-over solo votes visible in duo |
-| Q10 | Duo ranking order | In-votes, then Must-do count, then earliest |
-| Q11 | Default shortlist size (4–6) | 5; never suggest ideas with no votes |
-| Q12 | Stages: voting→collecting? | Not allowed; only reopen a set stage |
-| Q13 | Can organizers set another member's attendance? | No: only the member or their manager |
-| Q14 | Owner succession uses trip join date (we don't record promotion date) | Join date; managed members skipped |
-| Q15 | Poll turnout exactly 50% | Counts as enough |
+| Q6 | Pass count in small groups (DN-13) | Follow FR-42: show Pass count. **DECIDED:** keep (built) |
+| Q7 | "Split opinions" label to people who haven't voted (D42 vs FR-41) | Shown only after you vote (blind rule wins). **DECIDED:** keep (built) |
+| Q8 | FR-T4 newcomers seeing earlier duo votes | Must-do/Down names shown (group rules), Pass as count only. **DECIDED:** keep (built) |
+| Q9 | Solo → group directly: notice? Solo Skip votes visible to new partner? | No notice for solo→group; carried-over solo votes visible in duo. **DECIDED:** keep (built) |
+| Q10 | Duo ranking order | In-votes, then Must-do count, then earliest. **DECIDED:** keep (built) |
+| Q11 | Default shortlist size (4–6) | 5; never suggest ideas with no votes. **DECIDED:** keep (built) |
+| Q12 | Stages: voting→collecting? | Not allowed; only reopen a set stage. **DECIDED:** yes, a stage can go back from voting to collecting (votes and polls untouched) |
+| Q13 | Can organizers set another member's attendance? | No: only the member or their manager. **DECIDED:** yes, organizers can set anyone's attendance |
+| Q14 | Owner succession uses trip join date (we don't record promotion date) | Join date; managed members skipped. **DECIDED:** keep |
+| Q15 | Poll turnout exactly 50% | Counts as enough. **DECIDED:** exactly 50% turnout counts; a tie (incl. 50/50) is flagged "Split decision" to organizers |
 
 ## Money (packages/core/src/money)
 
@@ -64,8 +64,8 @@ move the answer into REQUIREMENTS.md §13 and update the code.
 
 | # | Question | Provisional default |
 |---|---|---|
-| Q37 | Opening a personal link turns an `invited` member `active` (being on the invite list = approval) | Yes |
-| Q38 | Personal link opened on a second device | Refused; asks for sign-in code |
+| Q37 | Opening a personal link turns an `invited` member `active` (being on the invite list = approval) | Yes. **DECIDED (D67):** no auto-join. POST-only trip preview with "Accept invitation" / "Not me"; accepting makes them active |
+| Q38 | Personal link opened on a second device | Refused; asks for sign-in code. **DECIDED:** keep (second device needs a code) |
 | Q39 | Recycled-number recheck (J-4) second factor | `needsRecheck` blocks full actions; recheck step not built |
 | Q40 | FR-86 banned-word list for trip names in texts | Strict ("Wine country" → "your trip") |
 | Q41 | Not built yet: quiet hours (N-5), per-trip MUTE (N-2), delivery callbacks, server-side session revocation | Later slices |
@@ -93,15 +93,22 @@ Decided by the founder in chat; propose adding to §13 as D64:
 |---|---|---|
 | JR1 | FR-9 "write it off": who absorbs the forgiven balance? | The people on the other side of the balance (those owed, or those owing), in proportion to their own balance. "Split across the group" spreads it evenly over active members instead |
 | JR2 | M-4 leaving with an open balance: must it be resolved like removal (FR-9)? | No. The balance is shown first and stays on the ledger under "former member" (M-1/M-2). Only organizer removal requires a resolution |
-| JR3 | Owner leaving (J-10) | Must transfer ownership first; "Leave trip" refuses for the owner |
-| JR4 | Denied or removed people using the group link again | "Ask the organizer to add you"; no new request. Organizers can restore (30 days) or re-invite |
-| JR5 | J-7 auto-pause: does the link resume by itself once requests are cleared? | No. At 20 open requests the link turns off; the organizer makes a new link (the old one has clearly spread) |
-| JR6 | Per-trip join request limits (FR-15) | 10 per hour, 30 per day through the group link |
-| JR7 | J-8 "That's not me" | A separate pending request under the typed name, flagged "says they're not Jess"; the invite row stays as is |
-| JR8 | Name after "Yes, I'm Jess" | Keeps the organizer's invite-list name |
-| JR9 | A verified person whose number/email doesn't match the invite opens someone's personal link | No account link (that would turn a forwarded link into full access). Identity attaches only on a matching phone/email |
+| JR3 | Owner leaving (J-10) | Must transfer ownership first; "Leave trip" refuses for the owner. **DECIDED:** transfer first, or the owner deletes the trip (typed confirmation + preview; soft delete hides it from everyone, money history kept) |
+| JR4 | Denied or removed people using the group link again | "Ask the organizer to add you"; no new request. Organizers can restore (30 days) or re-invite. **DECIDED:** keep |
+| JR5 | J-7 auto-pause: does the link resume by itself once requests are cleared? | No. At 20 open requests the link turns off; the organizer makes a new link (the old one has clearly spread). **DECIDED:** the link turns back on by itself once open requests drop below 20 |
+| JR6 | Per-trip join request limits (FR-15) | 10 per hour, 30 per day through the group link. **DECIDED:** no hourly/daily limits; only the 20-open-request pause (SMS-code limits FR-15 unchanged) |
+| JR7 | J-8 "That's not me" | A separate pending request under the typed name, flagged "says they're not Jess"; the invite row stays as is. **DECIDED (D67/C-JR7):** keep (separate pending request) |
+| JR8 | Name after "Yes, I'm Jess" | Keeps the organizer's invite-list name. **DECIDED (D67/C-JR8):** the invitee's own typed name wins |
+| JR9 | A verified person whose number/email doesn't match the invite opens someone's personal link | No account link (that would turn a forwarded link into full access). Identity attaches only on a matching phone/email. **DECIDED:** keep |
 | JR10 | Balances shown to an organizer during removal include surprise expenses hidden from them (FR-91) | Included, since removal must resolve the true balance. Could reveal a hidden amount; confirm |
-| JR11 | Managed members whose manager is removed or leaves | Unchanged (still active, no one acts for them) |
+| JR11 | Managed members whose manager is removed or leaves | Unchanged (still active, no one acts for them). **DECIDED:** organizers act for managed members whose manager left or was removed (RLS too) |
 | JR12 | Organizer alert when the link auto-pauses; "Jess joined" undo (J-8) | In-app banner and audit entries only; no text yet |
-| JR13 | FR-T4/T5 notices: People page only, or also the Ideas feed? | People page for now; `SizeNotice` is reusable for the feed |
-| JR14 | Who may promote/demote organizers | Owner and organizers (FR-2 "everything except removing the owner"); nobody can demote the owner |
+| JR13 | FR-T4/T5 notices: People page only, or also the Ideas feed? | People page for now; `SizeNotice` is reusable for the feed. **DECIDED:** also on the Ideas feed |
+| JR14 | Who may promote/demote organizers | Owner and organizers (FR-2 "everything except removing the owner"); nobody can demote the owner. **DECIDED:** keep |
+
+## Founder decisions, round 1 (2 Oct 2026) not tracked above
+
+- ST2 **DECIDED:** when a city's dates change, its polls are left alone (no shift, no pause).
+- ST5 **DECIDED:** organizers can remove a city with polls, plans or expenses: ideas go to Unsorted, open polls close, all its polls are unlinked, plan items are removed, expenses stay (unlinked). A preview shows first.
+- TX7 **SUPERSEDED by D65:** there are no texted-in ideas any more, so moving one to the library is moot (not built).
+- NMP **DECIDED:** keep.

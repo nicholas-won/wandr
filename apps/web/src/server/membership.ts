@@ -425,9 +425,11 @@ export async function confirmInviteName(
       return mine.status === "active" ? ({ kind: "joined", tripId: trip.tripId } as const) : ({ kind: "already_pending" } as const);
     }
     if (args.isMe) {
+      // D67/C-JR8: the invitee's own spelling wins over the organizer's invite-list name.
+      const typed = cleanName(args.name);
       await tx
         .update(members)
-        .set({ userId: args.userId, status: "active", joinedAt: now })
+        .set({ userId: args.userId, status: "active", joinedAt: now, ...(typed ? { displayName: typed } : {}) })
         .where(and(eq(members.id, match.id), eq(members.status, "invited")));
       await tx.insert(auditLog).values({
         tripId: trip.tripId,

@@ -34,6 +34,7 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
   });
   const others = view.members.filter((m) => m.id !== view.me.memberId);
   const solo = view.trip.size === "solo";
+  const pendingRequests = claims.sub && view.me.role !== "member" ? view.invited.filter((m) => m.status === "pending").length : 0;
   const items = visibleSections(view).map((s) => ({
     href: s.segment ? `${base}/${s.segment}` : base,
     label: solo && s.soloLabel ? s.soloLabel : s.label,
@@ -53,6 +54,13 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
           <span className="truncate">With {others.map((m) => m.displayName).join(", ")}</span>
         </>
       )}
+      {/* D65: join requests are in-app only (no texts); organizers see a count here. RLS returns
+          pending rows to organizers only. */}
+      {pendingRequests > 0 ? (
+        <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground">
+          {pendingRequests} {pendingRequests === 1 ? "request" : "requests"}
+        </span>
+      ) : null}
     </Link>
   );
 

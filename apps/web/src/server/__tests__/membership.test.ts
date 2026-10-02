@@ -262,7 +262,10 @@ describe("invite-list numbers and identity (J-8, FR-5)", () => {
     expect(r).toEqual({ kind: "confirm_name", memberId: jessMember, expectedName: "Jess" });
     const c = await confirmInviteName(d, { userId: jess.id, token: s.token, memberId: jessMember, isMe: true, name: "Jessica" });
     expect(c).toEqual({ kind: "joined", tripId: s.tripId });
-    expect((await getPeople(d, { sub: jess.id }, s.tripId))!.me.memberId).toBe(jessMember);
+    const people = (await getPeople(d, { sub: jess.id }, s.tripId))!;
+    expect(people.me.memberId).toBe(jessMember);
+    // D67/C-JR8: they keep the name they typed.
+    expect(people.people.find((p) => p.isMe)!.displayName).toBe("Jessica");
   });
 
   it("'That's not me' becomes a pending request under the typed name", async () => {
