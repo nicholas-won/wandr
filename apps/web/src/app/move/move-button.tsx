@@ -10,15 +10,12 @@ export function MoveButton({
   tripId,
   label,
   variant = "primary",
-  confirmVotesLost = false,
 }: {
   kind: "idea" | "save";
   id: string;
   tripId?: string;
   label: string;
-  variant?: "primary" | "outline" | "destructive";
-  /** TX7: the page showed the "votes will be lost" warning. */
-  confirmVotesLost?: boolean;
+  variant?: "primary" | "outline";
 }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +28,7 @@ export function MoveButton({
         loading={pending}
         onClick={() =>
           start(async () => {
-            const r = kind === "idea" ? await moveIdeaToLibraryAction(id, confirmVotesLost) : await moveSaveToTripAction(id, tripId!);
+            const r = kind === "idea" ? await moveIdeaToLibraryAction(id) : await moveSaveToTripAction(id, tripId!);
             if (r?.error) setError(r.error);
           })
         }

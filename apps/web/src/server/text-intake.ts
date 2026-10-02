@@ -11,7 +11,7 @@
  * the service after checking membership ourselves. Links/captions stay untrusted (C-20/C-21):
  * resolution goes through @wandr/ai resolveIdea exactly like server/ideas.ts.
  */
-import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import {
   asService,
   ideas,
@@ -66,12 +66,7 @@ export async function routeToActiveTrip(tx: Tx, phone: string, now = new Date())
   const ms = await activeMembershipsForPhone(tx, phone);
   if (ms.length === 0) return null;
   const ids = ms.map((m) => m.tripId);
-  // JR3: deleted trips never receive texted-in ideas.
-  const tripRows = await tx
-    .select({ id: trips.id, last: trips.lastActivityAt })
-    .from(trips)
-    .where(and(inArray(trips.id, ids), isNull(trips.deletedAt)));
-  if (tripRows.length === 0) return null;
+  const tripRows = await tx.select({ id: trips.id, last: trips.lastActivityAt }).from(trips).where(inArray(trips.id, ids));
   const stopRows = await tx
     .select({ tripId: stops.tripId, start: stops.startDate, end: stops.endDate })
     .from(stops)
@@ -156,55 +151,27 @@ export async function handleTextedIdea(db: Db, phone: string, url: string, now =
 /** Library saves resolve through the library slice's job (dedupe, auto-sort, import log). */
 export { resolveSavedIdeaJob } from "./library";
 
-export type MoveResult =
-  | { ok: true; to: string }
-  /** TX7: others voted on it; moving deletes their votes, so the sender must confirm first. */
-  | { ok: false; error: "not_found" | "confirm_votes_lost" | "not_allowed" };
+export type MoveResult = { ok: true; to: string } | { ok: false; error: "not_found" | "has_votes" | "not_allowed" };
 
-async function othersVoted(tx: Tx, ideaId: string, creatorMemberId: string): Promise<boolean> {
-  const others = await tx
-    .select({ m: votes.memberId })
-    .from(votes)
-    .where(and(eq(votes.ideaId, ideaId), ne(votes.memberId, creatorMemberId)))
-    .limit(1);
-  return others.length > 0;
-}
-
-/**
- * The idea the user texted in, if it's theirs and still in its (live) trip. `othersVoted` drives
- * the TX7 warning (a yes/no only: no counts or names, FR-42).
- */
+/** The idea the user texted in, if it's theirs and still in its trip. */
 export async function movableIdea(db: Db, userId: string, ideaId: string) {
   return asService(db, async (tx) => {
     const [row] = await tx
-      .select({
-        id: ideas.id,
-        title: ideas.title,
-        tripId: ideas.tripId,
-        tripName: trips.name,
-        creatorUser: members.userId,
-        creatorMember: members.id,
-      })
+      .select({ id: ideas.id, title: ideas.title, tripId: ideas.tripId, tripName: trips.name, creatorUser: members.userId })
       .from(ideas)
       .innerJoin(trips, eq(trips.id, ideas.tripId))
       .innerJoin(members, eq(members.id, ideas.createdByMemberId))
-      .where(and(eq(ideas.id, ideaId), isNull(trips.deletedAt)));
+      .where(eq(ideas.id, ideaId));
     if (!row || row.creatorUser !== userId) return null;
-    return { ...row, othersVoted: await othersVoted(tx, row.id, row.creatorMember) };
+    return row;
   });
 }
 
 /**
- * Trip → library. Only the person who added it. TX7: if others already voted, it still moves,
- * but only after the sender confirms (`confirmVotesLost`): the trip idea and all its votes are
- * deleted, and the library copy never carries votes.
+ * Trip → library. Only the person who added it, and only while nobody else has voted on it
+ * (moving would silently discard their votes).
  */
-export async function moveIdeaToLibrary(
-  db: Db,
-  userId: string,
-  ideaId: string,
-  opts: { confirmVotesLost?: boolean } = {},
-): Promise<MoveResult> {
+export async function moveIdeaToLibrary(db: Db, userId: string, ideaId: string): Promise<MoveResult> {
   return asService(db, async (tx) => {
     const [idea] = await tx
       .select({ idea: ideas, creatorUser: members.userId, creatorMember: members.id })
@@ -213,9 +180,12 @@ export async function moveIdeaToLibrary(
       .where(eq(ideas.id, ideaId));
     if (!idea) return { ok: false, error: "not_found" };
     if (idea.creatorUser !== userId) return { ok: false, error: "not_allowed" };
-    if (!opts.confirmVotesLost && (await othersVoted(tx, ideaId, idea.creatorMember))) {
-      return { ok: false, error: "confirm_votes_lost" };
-    }
+    const others = await tx
+      .select({ m: votes.memberId })
+      .from(votes)
+      .where(and(eq(votes.ideaId, ideaId), ne(votes.memberId, idea.creatorMember)))
+      .limit(1);
+    if (others.length) return { ok: false, error: "has_votes" };
 
     const i = idea.idea;
     const [existing] = i.placeId
@@ -260,7 +230,6 @@ export async function moveIdeaToLibrary(
         })),
       );
     }
-    // Votes cascade with the trip idea (TX7: they don't travel to the library copy).
     await tx.delete(ideas).where(eq(ideas.id, ideaId));
     return { ok: true, to: savedId };
   });
