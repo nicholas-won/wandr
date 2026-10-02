@@ -143,7 +143,6 @@ export function locationLabel(args: {
 }
 
 // Control, zero-width and bidi-override characters: never rendered from untrusted captions.
-// eslint-disable-next-line no-control-regex
 const UNSAFE_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F​-‏‪-‮⁠-⁩﻿]/g;
 
 /**
