@@ -138,6 +138,11 @@ export const trips = pgTable("trips", {
   /** Last-known size, maintained on membership change (FR-T1). */
   size: tripSize("size").notNull().default("solo"),
   lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+  /**
+   * JR3: soft delete by the owner. RLS hides the trip and everything in it from every client;
+   * money history stays in the database (NFR-5/NFR-7). Service-only (no client grant).
+   */
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: createdAt(),
 });
 
@@ -221,6 +226,8 @@ export const memberLinks = pgTable(
     tokenHash: text("token_hash").notNull().unique(),
     /** Set on first *interactive* use (not on GET), so preview bots don't bind it (N-4). */
     boundDeviceHash: text("bound_device_hash"),
+    /** Q1/Q37: the person confirmed their name (and accepted, if invited) on this link. */
+    nameConfirmedAt: timestamp("name_confirmed_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
