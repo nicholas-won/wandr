@@ -7,6 +7,7 @@ import { asService, getDb, users } from "@wandr/db";
 import { createProvisionalUser, PROVISIONAL_NAME } from "@/lib/auth/provisional";
 import { getSession, setFullSession } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
+import { track } from "@/server/analytics";
 import { addIdea, resolveIdeaJob } from "@/server/ideas";
 import { createTrip, DEFAULT_TRIP_NAME } from "@/server/trips";
 
@@ -42,6 +43,7 @@ export async function startTripAction(formData: FormData) {
     ownerName,
     name: looksLikeIdea || !raw ? DEFAULT_TRIP_NAME : raw,
   });
+  after(() => track(db, { name: "trip_created", tripId, memberId, props: { via: looksLikeIdea ? "paste" : "name" } }));
   if (looksLikeIdea) {
     const { ideaId } = await addIdea(db, { sub: userId }, { tripId, memberId, raw });
     after(() => resolveIdeaJob(db, ideaId));
@@ -64,7 +66,7 @@ export async function startClassicTripAction(formData: FormData) {
     String(formData.get("name") ?? "").trim() ||
     (destinations.length ? `${destinations.join(" + ")} trip` : DEFAULT_TRIP_NAME);
   const { db, userId, ownerName } = await ensureUser();
-  const { tripId } = await createTrip(db, {
+  const { tripId, memberId } = await createTrip(db, {
     userId,
     ownerName,
     name,
@@ -72,5 +74,8 @@ export async function startClassicTripAction(formData: FormData) {
     startDate: isoDate(formData.get("start")),
     endDate: isoDate(formData.get("end")),
   });
+  after(() =>
+    track(db, { name: "trip_created", tripId, memberId, props: { via: "classic", destinations: destinations.length } }),
+  );
   redirect(routes.trip(tripId));
 }

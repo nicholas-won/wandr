@@ -9,3 +9,4 @@ export * from "./stops";
 export * from "./budget";
 export * as money from "./money";
 export * as optimizer from "./optimizer";
+export * from "./metrics";

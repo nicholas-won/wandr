@@ -78,3 +78,11 @@ Decided by the founder in chat; propose adding to §13 as D64:
   multi-column views (ideas grid + "top picks" rail, money list + balances side by side).
 - Phone web is **capture-first** (paste a TikTok link, vote from a text) and bridges the gap until
   the native app (Phase 2).
+
+## Instrumentation (slice 9)
+
+| # | Question | Provisional default |
+|---|---|---|
+| Q42 | AI cost per import for the cost dashboard | $0.03, env `COST_AI_IMPORT_MICROS` until real invoices are wired |
+| Q43 | Booking decision gate (§11) sample size | "Insufficient data" below 20 decided Stays |
+| Q44 | Who sees /admin | User ids in `ADMIN_USER_IDS` |
