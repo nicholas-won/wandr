@@ -4,6 +4,7 @@ export * from "./trip-size";
 export * from "./voting";
 export * from "./polls";
 export * from "./permissions";
+export * from "./joining";
 export * from "./stages";
 export * from "./stops";
 export * from "./budget";
