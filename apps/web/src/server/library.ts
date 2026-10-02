@@ -40,6 +40,8 @@ import {
 import { classifyInput, createClaudeModel, createPlacesClient, resolveIdea, type ResolvedIdea } from "@wandr/ai";
 import { fileIdea, type VoteValue } from "@wandr/core";
 import { effectiveSort, foldName, isPending, type LibraryCategory, type SaveLike } from "@wandr/core/library";
+import { countryName } from "@/components/library/format";
+import { cardBlurb, cardPhoto, locationLabel, placePhotosEnabled, readCache, type CardVisualFields } from "@/lib/idea-visual";
 import { dbCache } from "./ideas";
 import { createTrip } from "./trips";
 
@@ -330,7 +332,7 @@ export async function pickSavedListicle(db: Db, userId: string, args: { savedIde
 // Reading the library (FR-L6, FR-L7)
 // ---------------------------------------------------------------------------
 
-export interface SaveView extends SaveLike {
+export interface SaveView extends SaveLike, CardVisualFields {
   id: string;
   title: string;
   summary: string | null;
@@ -355,6 +357,9 @@ type SourceRow = typeof savedIdeaSources.$inferSelect;
 function toView(s: SaveRow, sources: SourceRow[], note?: { note: string | null; somedayPriority: VoteValue | null }): SaveView {
   const first = [...sources].sort((a, b) => +a.createdAt - +b.createdAt)[0];
   const withThumb = sources.find((x) => x.thumbnailUrl);
+  const e = effectiveSort(s);
+  const caption = sources.find((x) => x.kind !== "text" && x.caption)?.caption ?? null;
+  const blurb = cardBlurb(s.summary, caption);
   return {
     id: s.id,
     title: s.title,
@@ -382,6 +387,24 @@ function toView(s: SaveRow, sources: SourceRow[], note?: { note: string | null; 
       Array.isArray(s.candidates) && s.candidates.length > 1
         ? (s.candidates as { name: string; summary: string }[]).map((c) => ({ name: c.name, summary: c.summary }))
         : null,
+    ...cardPhoto({
+      kind: "save",
+      id: s.id,
+      placeId: s.placeId,
+      placeCache: s.placeCache,
+      placeCachedAt: s.placeCachedAt,
+      enabled: placePhotosEnabled(),
+    }),
+    locationLabel:
+      s.extraction === "not_a_place"
+        ? null
+        : locationLabel({
+            neighborhood: readCache(s.placeCache).neighborhood,
+            city: e.city,
+            country: countryName(e.country),
+            category: e.category,
+          }),
+    blurb: blurb && blurb.toLocaleLowerCase() !== s.title.toLocaleLowerCase() ? blurb : null,
     createdAt: s.createdAt,
   };
 }

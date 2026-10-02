@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useOptimistic, useState, useTransition, type ReactNode } from "react";
 import { ExternalLink, MapPin, Pencil } from "lucide-react";
 import { voteLabel, type TripSize, type VoteValue } from "@wandr/core";
+import { IdeaComments } from "@/components/ideas/comment-thread";
+import { IdeaVisual } from "@/components/ideas/idea-visual";
 import { SaveForNextTime } from "@/components/library/save-for-next-time";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -20,19 +22,6 @@ const VOTE_STYLE: Record<VoteValue, string> = {
   pass: "bg-vote-pass text-vote-foreground border-vote-pass",
 };
 const VOTE_EMOJI: Record<VoteValue, string> = { must: "🔥", down: "👍", pass: "🙅" };
-
-const CATEGORY_EMOJI: Record<string, string> = {
-  food: "🍽️",
-  drink: "🍹",
-  nightlife: "🪩",
-  activity: "🎟️",
-  sight: "📸",
-  shopping: "🛍️",
-  stay: "🛏️",
-  transit: "🚆",
-  city: "🏙️",
-  other: "✨",
-};
 
 export function IdeaCard({
   tripId,
@@ -92,21 +81,15 @@ export function IdeaCard({
 
   return (
     <Card className="overflow-hidden">
-      <div className="flex gap-3 p-4">
-        {card.thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- remote, untrusted hosts; no optimizer
-          <img
-            src={card.thumbnailUrl}
-            alt=""
-            referrerPolicy="no-referrer"
-            className="size-20 shrink-0 rounded-lg object-cover"
-          />
-        ) : (
-          <div aria-hidden className="grid size-20 shrink-0 place-items-center rounded-lg bg-muted text-3xl">
-            {CATEGORY_EMOJI[card.category] ?? "✨"}
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
+      <IdeaVisual
+        title={card.title}
+        category={card.category}
+        photo={card.photo}
+        photoPrime={card.photoPrime}
+        thumbnailUrl={card.thumbnailUrl}
+      />
+      <div className="p-4">
+        <div className="min-w-0">
           <div className="flex items-start justify-between gap-2">
             {editing ? (
               <form
@@ -137,7 +120,16 @@ export function IdeaCard({
               <span className="shrink-0 text-xs font-semibold text-muted-foreground">#{card.rank}</span>
             ) : null}
           </div>
-          {card.summary ? <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{card.summary}</p> : null}
+          {card.locationLabel ? (
+            <p className="mt-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+              <MapPin className="size-3.5 shrink-0 text-primary" aria-hidden />
+              <span className="truncate">
+                <span className="sr-only">Filed under </span>
+                {card.locationLabel}
+              </span>
+            </p>
+          ) : null}
+          {card.blurb ? <p className="mt-2 line-clamp-3 text-sm leading-snug">{card.blurb}</p> : null}
           <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
             {card.permanentlyClosed ? <Badge variant="pass">Permanently closed</Badge> : null}
             {card.splitOpinions ? <Badge variant="accent">{card.splitOpinions}</Badge> : null}
@@ -198,11 +190,17 @@ export function IdeaCard({
             })}
           </div>
           <VoteSummary card={card} size={size} />
-          <div className="mt-2 text-right">
-            <SaveForNextTime tripId={tripId} ideaId={card.id} />
-          </div>
         </div>
       )}
+      <div className="border-t px-4 py-1.5">
+        <IdeaComments
+          tripId={tripId}
+          ideaId={card.id}
+          ideaTitle={card.title}
+          count={card.commentCount}
+          aside={card.notAPlace ? null : <SaveForNextTime tripId={tripId} ideaId={card.id} />}
+        />
+      </div>
       {extra}
     </Card>
   );
