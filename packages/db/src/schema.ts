@@ -362,6 +362,12 @@ export const polls = pgTable("polls", {
   winningOptionId: uuid("winning_option_id"),
   createdByMemberId: uuid("created_by_member_id").references(() => members.id),
   sharedAt: timestamp("shared_at", { withTimezone: true }), // FR-80c fallback timer
+  /** Paused by an organizer, a reopened stage or a Stop date change (S-4, S-6). No votes, no deadline. */
+  pausedAt: timestamp("paused_at", { withTimezone: true }),
+  /** Who closed it early (V-12 "Closed early by Sam"). Null when the deadline closed it. */
+  closedByMemberId: uuid("closed_by_member_id").references((): AnyPgColumn => members.id),
+  /** Run-off between the tied options of this poll (FR-48, V-7). */
+  runoffOfPollId: uuid("runoff_of_poll_id").references((): AnyPgColumn => polls.id, { onDelete: "set null" }),
   hiddenFrom: hiddenFrom(),
   createdAt: createdAt(),
 });

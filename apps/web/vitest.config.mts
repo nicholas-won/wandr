@@ -8,8 +8,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
-    // Integration tests boot in-memory Postgres (PGlite); many in parallel can exceed 5s.
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
+    // Each integration test boots its own PGlite and runs every migration; under parallel load
+    // that takes several seconds.
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
   },
 });
