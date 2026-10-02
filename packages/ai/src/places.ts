@@ -80,6 +80,8 @@ export interface PlaceDisplayCache {
   /** From addressComponents: ISO country code and locality (library sorting fallback). */
   countryCode: string | null;
   locality: string | null;
+  /** Neighborhood or sublocality ("Alfama"), for the card's "filed under" line. Optional (older caches). */
+  neighborhood?: string | null;
   /**
    * First place photo (display only). Optional: caches written before photos were requested
    * lack it, and the photo route refreshes those by place id.
@@ -204,6 +206,10 @@ export function mapRawPlace(p: RawPlace, now: Date = new Date()): PlaceCandidate
       locality:
         p.addressComponents?.find((c) => c.types?.includes("locality"))?.longText ??
         p.addressComponents?.find((c) => c.types?.includes("postal_town"))?.longText ??
+        null,
+      neighborhood:
+        p.addressComponents?.find((c) => c.types?.includes("neighborhood"))?.longText ??
+        p.addressComponents?.find((c) => c.types?.includes("sublocality_level_1") || c.types?.includes("sublocality"))?.longText ??
         null,
       photo: mapPhoto(p.photos),
       fetchedAt: now.toISOString(),
