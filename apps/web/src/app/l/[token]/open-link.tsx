@@ -121,15 +121,14 @@ function ConfirmInvite({
 }) {
   // D67 (Partiful pattern): "What's your name?" → "Confirm your number" (skippable for view + vote).
   const [name, setName] = React.useState(preview.yourName);
-  const [phase, setPhase] = React.useState<"name" | "phone">("name");
+  // The phone step belongs to the server state it was entered under; a new "bad name" answer from
+  // the server is a different object, so the name step shows again.
+  const [phoneFor, setPhoneFor] = React.useState<{ s: OpenLinkState | null } | null>(null);
   const invite = step === "accept_invite";
   const others = preview.people;
+  const setPhase = (p: "name" | "phone") => setPhoneFor(p === "phone" ? { s: badName } : null);
 
-  React.useEffect(() => {
-    if (badName) setPhase("name");
-  }, [badName]);
-
-  if (phase === "phone") {
+  if (phoneFor && phoneFor.s === badName) {
     return (
       <form action={action} className="flex flex-col gap-4">
         <input type="hidden" name="intent" value="accept" />

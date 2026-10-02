@@ -1,17 +1,14 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { UserPlus } from "lucide-react";
-import { shouldShowPhonePrompt } from "@wandr/core";
 import { PhonePrompt } from "@/components/trip/phone-prompt";
-import { COOKIE } from "@/lib/auth/cookies";
 import { AppHeader } from "@/components/app/app-header";
 import { AvatarStack } from "@/components/ui/avatar";
 import { visibleSections } from "@/components/trip/sections";
 import { TripNav } from "@/components/trip/trip-nav";
 import { StageChips } from "@/components/trip/stage-chips";
 import { routes } from "@/lib/routes";
-import { loadTripView, tripContext } from "@/server/context";
+import { loadTripView, phonePromptVisible, tripContext } from "@/server/context";
 
 /**
  * Responsive trip shell.
@@ -25,13 +22,10 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
   const base = routes.trip(tripId);
   // Q1: personal-link guests get a gentle "confirm your number" nudge after a few votes.
   const { claims } = await tripContext(tripId);
-  const dismissed = Number((await cookies()).get(COOKIE.phonePrompt)?.value);
-  const showPhonePrompt = shouldShowPhonePrompt({
-    scope: claims.sub ? "full" : "link",
-    votesCast: view.ideas.filter((c) => c.myVote).length,
-    dismissedAt: Number.isFinite(dismissed) && dismissed > 0 ? dismissed : null,
-    now: Date.now(),
-  });
+  const showPhonePrompt = await phonePromptVisible(
+    claims.sub ? "full" : "link",
+    view.ideas.filter((c) => c.myVote).length,
+  );
   const others = view.members.filter((m) => m.id !== view.me.memberId);
   const solo = view.trip.size === "solo";
   const pendingRequests = claims.sub && view.me.role !== "member" ? view.invited.filter((m) => m.status === "pending").length : 0;
