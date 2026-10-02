@@ -4,17 +4,13 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 
-async function startTrip(page: Page, isPhone: boolean) {
-  await page.goto("/");
-  if (isPhone) {
-    // Phones: capture-first hero; the destination form is further down the page.
-    await page.getByRole("link", { name: /set up a trip by destination/i }).click();
-  }
-  // The landing page has two setup forms (desktop hero + final CTA); use whichever is visible.
-  const form = page.locator("form").filter({ has: page.locator('input[name="destinations"]:visible') }).first();
+async function startTrip(page: Page) {
+  // D64: the website hands off to one focused setup step at /start.
+  await page.goto("/start");
+  const form = page.locator("form").filter({ has: page.locator('input[name="destinations"]') }).first();
   await form.locator('input[name="destinations"]').fill("Lisbon");
   await form.locator('input[name="name"]').fill("Nick & Sam");
-  await form.getByRole("button").click();
+  await form.getByRole("button", { name: "Create trip" }).click();
   await expect(page.getByRole("heading", { name: "Nick & Sam" }).first()).toBeVisible();
 }
 
@@ -23,7 +19,7 @@ test("duo trip: idea, invite, personal link, open votes", async ({ page, browser
   // Each project gets its own numbers: the projects share one database.
   const nickPhone = isPhone ? "202-555-0111" : "202-555-0101";
   const samPhone = isPhone ? "202-555-0152" : "202-555-0142";
-  await startTrip(page, isPhone);
+  await startTrip(page);
 
   // Add a typed idea (no network needed) and see the card fill in.
   await page.getByLabel("Paste a link or type an idea").fill("Pastéis de Belém");

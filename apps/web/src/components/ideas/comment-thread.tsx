@@ -128,15 +128,11 @@ export function CommentThread({
     };
   }, [tripId, ideaId]);
 
-  const update = useCallback(
-    (fn: (xs: Item[]) => Item[]) =>
-      setItems((xs) => {
-        const next = fn(xs ?? []);
-        onCount?.(liveCount(next));
-        return next;
-      }),
-    [onCount],
-  );
+  const update = useCallback((fn: (xs: Item[]) => Item[]) => setItems((xs) => fn(xs ?? [])), []);
+  // Keep the card's "💬 n" in step with the thread (after render, never during it).
+  useEffect(() => {
+    if (items) onCount?.(liveCount(items));
+  }, [items, onCount]);
 
   function send(text: string, parent: Item | null): boolean {
     if (!text.trim()) return false;
