@@ -81,7 +81,7 @@ export default async function Home() {
             <h2 className="mb-4 font-display text-xl font-bold">Plan a new trip</h2>
             <ClassicSetupForm />
           </div>
-          <PasteStartForm className="hidden lg:block" label="Or start from a TikTok or link" />
+          <PasteStartForm className="hidden lg:block" label="Or start from a TikTok or link" idPrefix="side-paste" />
         </aside>
       </div>
     </div>

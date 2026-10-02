@@ -25,6 +25,7 @@ import {
 } from "./rate-limit";
 import { getSession, requireFull, setFullSession } from "./session";
 import { adoptProvisionalUser, PROVISIONAL_NAME } from "./provisional";
+import { attachVerifiedIdentity } from "@/server/membership";
 import { OTP_TTL_SECONDS, signPayload, verifyPayload } from "./tokens";
 import { VERIFY_COST_MICROS } from "@/lib/messaging/cost";
 import { wrongNumberReportedSince } from "@/lib/messaging/opt-out";
@@ -242,6 +243,8 @@ export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
     return { user: created!, isNewUser: true, recheck: false };
   });
 
+  // FR-5: a personal-link guest who verifies keeps their memberships (not for a recycled-number recheck, J-4).
+  if (!result.recheck) await asService(db, (tx) => attachVerifiedIdentity(tx, result.user.id));
   await setFullSession({ userId: result.user.id, needsRecheck: result.recheck });
   jar.delete(COOKIE.otp);
   return {

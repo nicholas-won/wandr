@@ -12,6 +12,7 @@ import { createProvisionalUser, PROVISIONAL_NAME } from "@/lib/auth/provisional"
 import { AuthError, getSession, requireFull, setFullSession } from "@/lib/auth/session";
 import { libraryRoutes } from "@/lib/library-routes";
 import { routes } from "@/lib/routes";
+import { track } from "@/server/analytics";
 import { inviteMember } from "@/server/invites";
 import {
   addBoardMember,
@@ -196,6 +197,7 @@ export async function startTripFromSavesAction(input: {
       boardId: input.boardId ? uuid.parse(input.boardId) : null,
     });
     tripId = r.tripId;
+    after(() => track(db, { name: "trip_created", tripId: r.tripId, memberId: r.memberId, props: { via: "library", ideas: r.sent } }));
     if (input.boardId) {
       const boardId = uuid.parse(input.boardId);
       const full = await requireFull().catch(() => null);

@@ -953,15 +953,15 @@ export async function startTripFromSaves(
     savedIdeaIds: string[];
     boardId?: string | null;
   },
-): Promise<{ tripId: string } & SendResult> {
-  const { tripId } = await createTrip(db, {
+): Promise<{ tripId: string; memberId: string } & SendResult> {
+  const { tripId, memberId } = await createTrip(db, {
     userId: args.userId,
     ownerName: args.ownerName,
     name: args.name,
     city: args.city,
   });
   const r = await sendSavesToTrip(db, args.userId, { tripId, savedIdeaIds: args.savedIdeaIds, boardId: args.boardId });
-  return { tripId, ...r };
+  return { tripId, memberId, ...r };
 }
 
 /**
