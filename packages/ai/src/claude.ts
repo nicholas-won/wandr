@@ -10,6 +10,9 @@ import type { z } from "zod";
 /** Default model per CLAUDE.md / §7a. Override with AI_MODEL (only with an eval + founder OK). */
 export const DEFAULT_MODEL = "claude-opus-5-5";
 
+/** D72: if the main model declines, retry once with this model before the heuristic fallback. */
+export const DEFAULT_REFUSAL_FALLBACK_MODEL = "claude-sonnet-5-5";
+
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface StructuredRequest<T> {
@@ -52,6 +55,29 @@ export function createClaudeModel(
   const apiKey = opts.apiKey ?? env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
   const model = opts.model ?? env.AI_MODEL ?? DEFAULT_MODEL;
+  const primary = singleModel(apiKey, model, opts);
+  // D72: a refusal gets one retry on another Claude model. "" disables the retry.
+  const fallbackModel = env.AI_REFUSAL_FALLBACK_MODEL ?? DEFAULT_REFUSAL_FALLBACK_MODEL;
+  if (opts.model || !fallbackModel || fallbackModel === model) return primary;
+  return withRefusalFallback(primary, singleModel(apiKey, fallbackModel, opts));
+}
+
+/**
+ * D72: call `primary`; only when it refuses, call `fallback` once. Errors, truncation and schema
+ * failures are returned as-is (no retry), so a network problem never doubles the cost.
+ */
+export function withRefusalFallback(primary: StructuredModel, fallback: StructuredModel): StructuredModel {
+  return {
+    model: primary.model,
+    async generate<T>(req: StructuredRequest<T>): Promise<StructuredResult<T>> {
+      const first = await primary.generate(req);
+      if (first.stopReason !== "refusal") return first;
+      return fallback.generate(req);
+    },
+  };
+}
+
+function singleModel(apiKey: string, model: string, opts: ClaudeClientOptions): StructuredModel {
   const client = new Anthropic({
     apiKey,
     timeout: opts.timeoutMs ?? 30_000,
