@@ -9,22 +9,14 @@ const EMOJI = { set: "✅", voting: "🗳", collecting: "💡", not_needed: "" }
 
 /**
  * FR-120 stage progress: "Where ✅ · When ✅ · Stay 🗳 closes Fri · Do 💡".
- * P2: appears only once the trip has more than the default (an organizer moved a stage, 2+ Stops,
- * or a stage poll is open). Before that, organizers get one quiet link; members see nothing.
+ * D68 (C-ST1): always shown, so everyone can see where planning stands from day one.
  * Server component; mount it in the sidebar (`vertical`) and under the phone title.
  */
 export async function StageChips({ tripId, vertical = false }: { tripId: string; vertical?: boolean }) {
   const v = await loadPlanning(tripId);
   if (!v) return null;
   const href = `${routes.trip(tripId)}/stops`;
-  if (!v.showChips) {
-    if (!v.me.isOrganizer) return null;
-    return (
-      <Link href={href} className="text-xs font-semibold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
-        Track planning stages
-      </Link>
-    );
-  }
+  if (v.chips.length === 0) return null;
   const closes = new Map(v.stages.map((s) => [s.kind, s.closesAt]));
   return (
     <Link
