@@ -68,7 +68,8 @@ describe("outbound texts (FR-81, FR-16)", () => {
   it("always include the personal link and a WRONG footer", () => {
     const t = texts.invite({ to: { name: "Jess Park", link: LINK }, inviterName: "Sam", tripName: "Lisbon" });
     expect(t.startsWith(`${APP_NAME}: `)).toBe(true);
-    expect(t).toContain("Hi Jess! Sam added you to Lisbon.");
+    expect(t).toContain("Hi Jess! Sam added you to a trip.");
+    expect(t).not.toContain("Lisbon"); // D65 / T5: never the trip's name
     expect(t).toContain(LINK);
     expect(t.endsWith("Not Jess? Reply WRONG")).toBe(true);
   });

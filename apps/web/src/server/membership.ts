@@ -62,8 +62,6 @@ import { isWellFormedLinkToken } from "@/lib/auth/link-token";
 import { revokeLinksForMembers } from "@/lib/auth/personal-link";
 import { sessionSecret } from "@/lib/auth/secret";
 import { appUrl } from "@/lib/env";
-import { sendMessage, tryOpenSmsQuestion } from "@/lib/messaging/send";
-import { texts } from "@/lib/messaging/templates";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -559,69 +557,6 @@ export async function decideJoinRequest(
   });
   return r;
 }
-
-/**
- * Text the organizers about a request with a Y/N question (FR-8, FR-83). Only organizers whose
- * single open question slot is free get the text, so a Y/N reply is never ambiguous (DN-23).
- */
-export async function notifyJoinRequest(db: Db, tripId: string, pendingMemberId: string): Promise<number> {
-  const prepared = await asService(db, async (tx) => {
-    const [req] = await tx
-      .select({ name: members.displayName, phone: users.phone, status: members.status })
-      .from(members)
-      .leftJoin(users, eq(users.id, members.userId))
-      .where(and(eq(members.id, pendingMemberId), eq(members.tripId, tripId)));
-    const [trip] = await tx.select({ name: trips.name }).from(trips).where(eq(trips.id, tripId));
-    if (!req || req.status !== "pending" || !trip) return [];
-    const orgs = await tx
-      .select({ id: members.id, name: members.displayName, phone: users.phone, email: users.email })
-      .from(members)
-      .innerJoin(users, eq(users.id, members.userId))
-      .where(
-        and(eq(members.tripId, tripId), eq(members.status, "active"), inArray(members.role, ["owner", "organizer"])),
-      );
-    const out: { memberId: string; phone: string; body: string }[] = [];
-    for (const o of orgs) {
-      if (!o.phone) continue;
-      const opened = await tryOpenSmsQuestion(tx, {
-        phone: o.phone,
-        memberId: o.id,
-        payload: { kind: "approve_join", tripId, pendingMemberId, name: req.name, tripName: trip.name },
-        ttlHours: JOIN_LIMITS.pendingTtlDays * 24,
-      });
-      if (!opened) continue;
-      out.push({
-        memberId: o.id,
-        phone: o.phone,
-        body: texts.joinRequest({
-          to: { name: o.name, link: `${appUrl()}/t/${tripId}/people` },
-          requesterName: req.name,
-          requesterLast4: last4(req.phone) ?? "",
-          tripName: trip.name,
-        }),
-      });
-    }
-    return out;
-  });
-  let sent = 0;
-  for (const m of prepared) {
-    const r = await sendMessage({
-      kind: "join_request",
-      tripId,
-      memberId: m.memberId,
-      phone: m.phone,
-      email: null,
-      body: m.body,
-      timeSensitive: true,
-    });
-    if (r.channel === "sms") sent++;
-  }
-  return sent;
-}
-
-// ---------------------------------------------------------------------------
-// Identity (FR-5): keep memberships when a personal-link guest signs in
-// ---------------------------------------------------------------------------
 
 /**
  * After a verified code: link `members.user_id` on joined rows (active / not attending) whose

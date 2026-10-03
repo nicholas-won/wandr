@@ -13,9 +13,7 @@ import {
   memberContacts,
   memberLinks,
   members,
-  outboundMessages,
   setDbForTests,
-  smsOpenQuestions,
   trips,
   users,
   type Db,
@@ -39,7 +37,6 @@ import {
   leaveTrip,
   listJoinRequests,
   MembershipError,
-  notifyJoinRequest,
   ownerSuccessionOnAccountDeletion,
   regenerateGroupLink,
   removeMember,
@@ -228,20 +225,6 @@ describe("join requests and approvals (FR-6, FR-8, J-20)", () => {
     );
   });
 
-  it("texts organizers a Y/N question (FR-8)", async () => {
-    const s = await setup();
-    const u = await user("Mo", "+12025550177");
-    const r = await joinViaGroupLink(d, { userId: u.id, token: s.token, name: "Mo", ageConfirmed: true });
-    if (r.kind !== "pending") throw new Error();
-    expect(await notifyJoinRequest(d, s.tripId, r.memberId)).toBe(1);
-    const [q] = await asService(d, (tx) => tx.select().from(smsOpenQuestions).where(eq(smsOpenQuestions.phone, s.owner.phone!)));
-    expect(q).toMatchObject({ kind: "approve_join", memberId: s.ownerMember });
-    const [m] = await asService(d, (tx) => tx.select().from(outboundMessages).where(eq(outboundMessages.kind, "join_request")));
-    expect(m!.body).toContain("Mo (0177) wants to join");
-    // Deciding in the app closes the text question.
-    await decideJoinRequest(d, { userId: s.owner.id, tripId: s.tripId, memberId: r.memberId, approve: true });
-    expect(await asService(d, (tx) => tx.select().from(smsOpenQuestions))).toEqual([]);
-  });
 });
 
 describe("invite-list numbers and identity (J-8, FR-5)", () => {

@@ -124,13 +124,11 @@ const VOTE_PROMPT = "Reply 1 Must-do, 2 Down, 3 Pass";
 
 export const texts = {
   /** Personal invite (FR-4). */
-  invite(p: { to: Recipient; inviterName: string; tripName: string }) {
+  /** D65 / T5: never the trip's name (carrier filtering, J-19); the link shows it. */
+  invite(p: { to: Recipient; inviterName: string; tripName?: string }) {
     const hi = sanitizeFirstName(p.to.name);
     const inviter = sanitizeFirstName(p.inviterName) || "A friend";
-    return outboundText(
-      `${hi ? `Hi ${hi}! ` : ""}${inviter} added you to ${sanitizeTripName(p.tripName)}. Tap to see ideas and vote:`,
-      p.to,
-    );
+    return outboundText(`${hi ? `Hi ${hi}! ` : ""}${inviter} added you to a trip. Tap to see the ideas and vote:`, p.to);
   },
 
   /** Vote question; opens the person's single SMS question (FR-82, FR-83). */
@@ -178,7 +176,7 @@ export const replies = {
     `${APP_NAME}: You're unsubscribed and won't get more texts from this number. Sign-in codes still work. Reply START to resubscribe.`,
   optedIn: () => `${APP_NAME}: You're resubscribed to trip texts. Reply STOP to opt out, HELP for help.`,
   help: (p: { url: string; supportEmail?: string }) =>
-    `${APP_NAME}: Texts about trips you're in. Help: ${p.url}${p.supportEmail ? ` or ${p.supportEmail}` : ""}. Msg frequency varies. Msg & data rates may apply. Reply STOP to opt out.`,
+    `${APP_NAME}: Trip invites and sign-in codes. Help: ${p.url}${p.supportEmail ? ` or ${p.supportEmail}` : ""}. Msg frequency varies. Msg & data rates may apply. Reply STOP to opt out.`,
   wrongNumber: () => `${APP_NAME}: Thanks for letting us know. We won't text this number again. Sorry about that!`,
   voteRecorded: (p: { ideaTitle: string; value: keyof typeof VOTE_LABEL }) =>
     `Got it: ${VOTE_LABEL[p.value]} for ${sanitizeIdeaTitle(p.ideaTitle)}. Reply UNDO to change.`,
@@ -196,4 +194,7 @@ export const replies = {
   unrecognized: () =>
     "Sorry, we didn't get that. Reply to a question with its number, text us a link to add an idea, or reply HELP.",
   tapback: () => "Reactions don't count as votes. Reply 1, 2 or 3 instead.",
+  /** D65: anything other than STOP/START/HELP/WRONG. */
+  useApp: (p: { url: string }) =>
+    `${APP_NAME}: This number only sends invites and sign-in codes. Open your trip with the link we sent you, or go to ${p.url}. Reply HELP for help.`,
 };

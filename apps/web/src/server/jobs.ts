@@ -1,7 +1,7 @@
 /**
  * Background job queue (§7a Inngest). `enqueue` sends an Inngest event when INNGEST_EVENT_KEY is
  * set; otherwise (local dev, or if the send fails) it runs the same handler in-process after the
- * response with `after()`. Handlers live in server/notify.ts and server/text-intake.ts and are
+ * response with `after()`. Handlers live in server/notify.ts and server/library.ts and are
  * shared by both paths, so behavior is identical.
  */
 import { after } from "next/server";
@@ -24,13 +24,12 @@ export async function runJob(e: JobEvent): Promise<void> {
       return;
     }
     case EVENTS.savedIdeaAdded: {
-      const { resolveSavedIdeaJob } = await import("./text-intake");
+      const { resolveSavedIdeaJob } = await import("./library");
       await resolveSavedIdeaJob(db, e.data.savedIdeaId);
       return;
     }
     case EVENTS.expenseChanged: {
-      const { sendExpenseTexts } = await import("./notify");
-      await sendExpenseTexts(db, e.data.tripId, e.data.expenseId);
+      // D65: money updates live in the app ("What changed"); nothing is texted.
       return;
     }
   }
