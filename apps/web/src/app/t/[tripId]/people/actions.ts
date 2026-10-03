@@ -19,6 +19,7 @@ import {
   setOrganizer,
 } from "@/server/membership";
 import { markNoticeSeen } from "@/server/trips";
+import { AccountError, approveRecheck } from "@/server/account";
 import type { ActionResult } from "../actions";
 
 const MESSAGES: Record<MembershipError["code"], string> = {
@@ -58,6 +59,19 @@ export async function decideRequestAction(tripId: string, memberId: string, appr
     refresh();
     return { ok: true, message: approve ? "Approved" : "Request denied" };
   } catch (e) {
+    return fail(e, tripId);
+  }
+}
+
+/** FR-16 / J-4: "Yes, that's them" for a member whose long-inactive number signed in again. */
+export async function approveRecheckAction(tripId: string, memberId: string): Promise<ActionResult> {
+  try {
+    const { db, user } = await full(tripId);
+    await approveRecheck(db, { userId: user.userId, tripId, memberId: id.parse(memberId) });
+    refresh();
+    return { ok: true, message: "Confirmed" };
+  } catch (e) {
+    if (e instanceof AccountError) return { ok: false, error: e.code === "not_allowed" ? "Only organizers can do that." : "That's already sorted." };
     return fail(e, tripId);
   }
 }

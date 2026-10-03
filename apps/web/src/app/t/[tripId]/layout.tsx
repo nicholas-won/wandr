@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { getFormerMoney } from "@/server/account";
 import { UserPlus } from "lucide-react";
 import { PhonePrompt } from "@/components/trip/phone-prompt";
 import { AppHeader } from "@/components/app/app-header";
@@ -19,7 +20,14 @@ import { queueStopGeocode } from "@/server/geocode";
 export default async function TripLayout({ children, params }: LayoutProps<"/t/[tripId]">) {
   const { tripId } = await params;
   const view = await loadTripView(tripId);
-  if (!view) notFound();
+  if (!view) {
+    // M-1/M-2: a removed member lands on their money-only view instead (RLS decides).
+    const { db, session } = await tripContext(tripId);
+    if (session.user && !session.user.needsRecheck && (await getFormerMoney(db, session.user.userId, tripId))) {
+      redirect(routes.settle(tripId));
+    }
+    notFound();
+  }
   // Lazy backfill (FR-S6 / FR-O16): Stops without coordinates are geocoded in the background.
   if (view.stopsNeedGeocode) await queueStopGeocode(tripId);
   const base = routes.trip(tripId);

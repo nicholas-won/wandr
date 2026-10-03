@@ -78,8 +78,10 @@ async function findLink(tx: Tx, token: string): Promise<LinkRow | undefined> {
 
 function statusOf(row: LinkRow | undefined): LinkStatus {
   if (!row) return "invalid";
-  if (row.revokedAt || row.tripDeletedAt) return "revoked";
+  if (row.tripDeletedAt) return "revoked";
+  // Removal revokes links (M-12), but the person still needs to know where to settle up (M-1).
   if (row.memberStatus === "removed") return "removed";
+  if (row.revokedAt) return "revoked";
   return "ok";
 }
 

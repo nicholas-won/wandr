@@ -5,6 +5,7 @@ import { InviteForm, ResendLink } from "@/components/trip/invite-form";
 import {
   AddManagedMember,
   JoinRequestActions,
+  RecheckApprove,
   LeaveTrip,
   MemberMenu,
   RestoreButton,
@@ -12,6 +13,7 @@ import {
 } from "@/components/trip/people-admin";
 import { loadTripView, tripContext } from "@/server/context";
 import { getPeople } from "@/server/membership";
+import { listRecheckRequests } from "@/server/account";
 
 const ROLE_LABEL: Record<string, string> = { owner: "Owner", organizer: "Organizer", member: "" };
 
@@ -26,6 +28,7 @@ export default async function PeoplePage({ params }: PageProps<"/t/[tripId]/peop
   // FR-5: role and membership changes need a verified session; personal-link guests only view.
   const canManage = isOrganizer && people.me.verified;
   const activeOthers = people.people.filter((p) => p.status === "active");
+  const rechecks = canManage && claims.sub ? await listRecheckRequests(db, claims.sub, tripId) : [];
 
   return (
     <main className="space-y-4 lg:grid lg:grid-cols-[1fr_320px] lg:items-start lg:gap-6 lg:space-y-0">
@@ -73,6 +76,27 @@ export default async function PeoplePage({ params }: PageProps<"/t/[tripId]/peop
                     </span>
                   </span>
                   <JoinRequestActions tripId={tripId} memberId={r.memberId} name={r.name} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {rechecks.length > 0 ? (
+          <section aria-labelledby="recheck-h" className="space-y-2">
+            <h2 id="recheck-h" className="font-display text-lg font-bold">
+              Is this really them?
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Their number signed in after a long break. Numbers sometimes get a new owner, so they can&apos;t see money until
+              someone who knows them confirms. Check with them first.
+            </p>
+            <ul className="divide-y rounded-xl border bg-card">
+              {rechecks.map((r) => (
+                <li key={r.memberId} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                  <Avatar name={r.name} />
+                  <span className="min-w-0 flex-1 font-medium">{r.name}</span>
+                  <RecheckApprove tripId={tripId} memberId={r.memberId} name={r.name} />
                 </li>
               ))}
             </ul>
