@@ -23,6 +23,7 @@ export default defineConfig({
     url: `http://localhost:${PORT}`,
     timeout: 300_000,
     reuseExistingServer: false,
-    env: { PGLITE_DIR: ".data/e2e", NEXT_DIST_DIR: ".next-e2e" },
+    // GEOCODER=off: no network in e2e; Stops simply stay without coordinates (silent).
+    env: { PGLITE_DIR: ".data/e2e", NEXT_DIST_DIR: ".next-e2e", GEOCODER: "off" },
   },
 });

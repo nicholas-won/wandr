@@ -47,6 +47,8 @@ export default async function MapPage({ params, searchParams }: PageProps<"/t/[t
     })),
   );
   const focusName = multi && focus ? visible[0]?.name : null;
+  // FR-S9: with nothing located yet, open on the shown Stop's own coordinates.
+  const center = visible.find((g) => g.center)?.center ?? null;
 
   return (
     <main className="space-y-4">
@@ -67,6 +69,7 @@ export default async function MapPage({ params, searchParams }: PageProps<"/t/[t
         layout="split"
         pins={pins}
         stops={stops}
+        center={center}
         label={focusName ? `Map of ${focusName}` : "Map of the trip"}
         emptyText="No places yet. Ideas with a place show up here."
       />

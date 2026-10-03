@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarDays, Sparkles } from "lucide-react";
-import { forecastSummary, optimizer, rainLikely, weatherLabel } from "@wandr/core";
+import { clockValue, forecastSummary, optimizer, rainLikely, timeZoneLabel, travelDayNotes, weatherLabel } from "@wandr/core";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { routes } from "@/lib/routes";
 import { tripContext } from "@/server/context";
 import { getPlanContext, isPlanOutOfDate, planHints, previewPlan, stopLocation, unplacedItems } from "@/server/plan";
 import { forecastFor } from "@/server/weather";
-import { AddToPlan, ApplyPlan, ItemControls } from "./plan-controls";
+import { AddToPlan, ApplyPlan, ItemControls, TravelTimes } from "./plan-controls";
 import { PlanMapRail, type PlanMapDay } from "@/components/map/plan-map-rail";
 
 const MODE: Record<string, string> = { walk: "🚶", transit: "🚇", drive: "🚗" };
@@ -29,6 +29,25 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
   if (!ctx) notFound();
   const base = `${routes.trip(tripId)}/plan${stopId ? `?stop=${stopId}` : ""}`;
   const title = (id: string) => ctx.titles.get(id) ?? "Planned item";
+  // FR-O16: plan times are the Stop's local time; say which zone that is.
+  const firstDate = typeof ctx.input.stop.days === "number" ? null : (ctx.input.stop.days[0] ?? null);
+  const zone = ctx.stop.timezone ? timeZoneLabel(ctx.stop.timezone, firstDate ? new Date(`${firstDate}T12:00:00Z`) : new Date()) : null;
+  const zoneLine = zone ? (
+    <p className="text-xs text-muted-foreground" data-testid="plan-zone">
+      🕒 Times are {ctx.stop.name ? `${ctx.stop.name} time` : "local time"} ({zone})
+    </p>
+  ) : null;
+  // FR-O15: shortened arrival/departure days.
+  const travelNotes = travelDayNotes(ctx.input.stop, ctx.input.pace);
+  const travelTimes = ctx.canApply ? (
+    <TravelTimes
+      tripId={tripId}
+      stopId={ctx.stop.id}
+      arrive={clockValue(ctx.stop.arrivalMinute)}
+      leave={clockValue(ctx.stop.departureMinute)}
+      zoneLabel={zone}
+    />
+  ) : null;
 
   if (ctx.input.items.length === 0 && ctx.current.items.length === 0) {
     return (
@@ -47,6 +66,7 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
     return (
       <div className={RAIL_GRID}>
       <main className="min-w-0 space-y-4">
+        {zoneLine}
         <p className="rounded-xl bg-secondary px-4 py-3 text-sm text-secondary-foreground">
           Here&apos;s a suggested order. Nothing changes until you apply it. Locked items stay put.
         </p>
@@ -99,6 +119,7 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
   return (
     <div className={RAIL_GRID}>
     <main className="min-w-0 space-y-4">
+      {zoneLine}
       {outOfDate ? (
         <p className="rounded-xl bg-accent px-4 py-3 text-sm text-accent-foreground">
           Plan may be out of date: ideas or attendance changed since it was arranged.
@@ -109,6 +130,7 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
           <Sparkles aria-hidden /> {ctx.current.items.length ? "Re-arrange my days" : "Arrange my days"}
         </Link>
       ) : null}
+      {travelTimes}
       {hints.length || rainHints.length ? (
         <ul className="space-y-1 rounded-xl border bg-card p-3 text-sm" aria-label="Heads up">
           {hints.map((h, i) => (
@@ -151,6 +173,9 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
                 </span>
               ) : null}
             </div>
+            {travelNotes.get(d) ? (
+              <p className="text-xs font-semibold text-secondary-foreground" data-testid="travel-day-note">{travelNotes.get(d)}</p>
+            ) : null}
             {hasLodging && d === 0 ? <p className="text-xs font-semibold text-secondary-foreground">🛏️ Check in from 3pm</p> : null}
             {items.length === 0 ? (
               <p className="text-sm text-muted-foreground">Free day</p>
@@ -223,7 +248,12 @@ function PlanDays({ plan, title }: { plan: optimizer.Plan; title: (id: string) =
         <section key={d.dayIndex} className="space-y-2">
           <h2 className="font-display text-lg font-bold">
             {dayLabel(d.dayIndex, d.date)}
-            {d.dinnerOnly ? <span className="ml-2 text-sm font-normal text-muted-foreground">arrival · dinner only</span> : null}
+            {d.kind === "arrival" || d.kind === "arrival_departure" ? (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">arrival{d.dinnerOnly ? " · dinner only" : ""}</span>
+            ) : null}
+            {d.kind === "departure" || d.kind === "arrival_departure" ? (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">departure</span>
+            ) : null}
           </h2>
           {d.items.length === 0 ? (
             <p className="text-sm text-muted-foreground">Free day</p>

@@ -1,5 +1,5 @@
 {
-  "id": "ae3bf7d3-c5eb-480a-9ca8-5cf54a5bc191",
+  "id": "4488734b-4051-4ae4-bec2-3e03b5eb1ce7",
   "prevId": "53f6b78e-e260-41ec-83f4-75b2edb86b91",
   "version": "7",
   "dialect": "postgresql",
@@ -4892,6 +4892,42 @@
           "primaryKey": false,
           "notNull": false
         },
+        "country_code": {
+          "name": "country_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geocoded_name": {
+          "name": "geocoded_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geocode_source": {
+          "name": "geocode_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geocoded_at": {
+          "name": "geocoded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "arrival_minute": {
+          "name": "arrival_minute",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "departure_minute": {
+          "name": "departure_minute",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
         "lodging_idea_id": {
           "name": "lodging_idea_id",
           "type": "uuid",
@@ -5173,18 +5209,6 @@
         },
         "last_sign_in_at": {
           "name": "last_sign_in_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "recheck_pending_at": {
-          "name": "recheck_pending_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false

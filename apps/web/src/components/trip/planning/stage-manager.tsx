@@ -44,11 +44,14 @@ export function StageManager({
   stages,
   solo,
   isOrganizer,
+  city = null,
 }: {
   tripId: string;
   stages: StageView[];
   solo: boolean;
   isOrganizer: boolean;
+  /** FR-O16: the trip city's clock for deadlines. */
+  city?: { name: string; timeZone: string } | null;
 }) {
   const [busy, start] = useTransition();
   const [pending, setPending] = useState<Pending | null>(null);
@@ -91,7 +94,7 @@ export function StageManager({
                 {s.status === "voting" && s.closesAt ? (
                   <>
                     {" · "}
-                    <ClosesLabel at={s.closesAt} />
+                    <ClosesLabel at={s.closesAt} city={city} />
                   </>
                 ) : null}
               </p>

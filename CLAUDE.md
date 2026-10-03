@@ -15,8 +15,8 @@ The name is a placeholder; don't hard-code it in many places. Keep it in one con
 
 ## Current phase: Phase 1, the web POC
 
-Build only what §7 lists for Phase 1. **Not in the POC:**
-- Native app, push notifications, offline mode
+Build only what §7 lists for Phase 1, **plus the native app (D75)**: Expo in `apps/mobile`, talking only to the JSON API defined in `packages/api-contract` and served from `apps/web/src/app/api/v1`. **Not in the POC:**
+- Offline mode
 - Flight tracking
 - Any monetization or affiliate links (booking links are plain links with click tracking only). This includes the idea library paywall: the POC logs imports but enforces no cap (FR-L24)
 - Payments, the group card, B2B features
@@ -90,6 +90,8 @@ All nine slices plus 2b have a first version on `feat/foundation`, with unit, RL
 - Vitest + Playwright
 - pnpm monorepo:
   - `apps/web`
+  - `apps/mobile` (Expo, D75)
+  - `packages/api-contract` (shared API schemas + typed client)
   - `packages/core` (pure domain logic)
   - `packages/db`
   - `packages/ai` (prompts plus evals)
