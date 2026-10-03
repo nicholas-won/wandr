@@ -2,11 +2,18 @@
 
 /** Trip settings for organizers (FR-6, FR-7, FR-10, J-7) and the owner (FR-2, FR-3). Code required (FR-5). */
 import { refresh } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { AuthError, requireFull } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { tripContext } from "@/server/context";
-import { MembershipError, regenerateGroupLink, transferOwnership, updateJoinSettings } from "@/server/membership";
+import {
+  deleteTrip,
+  MembershipError,
+  regenerateGroupLink,
+  transferOwnership,
+  updateJoinSettings,
+} from "@/server/membership";
 import type { ActionResult } from "../actions";
 
 async function full(tripId: string) {
@@ -20,7 +27,13 @@ function fail(e: unknown, tripId: string): ActionResult {
     return { ok: false, error: "Confirm your number first.", signin: routes.signin(`${routes.trip(tripId)}/settings`) };
   }
   if (e instanceof MembershipError) {
-    return { ok: false, error: e.code === "not_allowed" ? "Only organizers can change this." : "Pick someone else." };
+    const error =
+      e.code === "not_allowed"
+        ? "Only organizers can change this."
+        : e.code === "confirmation_mismatch"
+          ? "Type the trip name exactly to confirm."
+          : "Pick someone else.";
+    return { ok: false, error };
   }
   console.error(e);
   return { ok: false, error: "Something went wrong. Try again." };
@@ -53,6 +66,17 @@ export async function updateJoinSettingsAction(tripId: string, patch: unknown): 
   } catch (e) {
     return fail(e, tripId);
   }
+}
+
+/** JR3: the owner deletes the trip for everyone (typed confirmation). Soft delete; money history kept. */
+export async function deleteTripAction(tripId: string, confirmation: string): Promise<ActionResult> {
+  try {
+    const { db, user } = await full(tripId);
+    await deleteTrip(db, { userId: user.userId, tripId, confirmation: z.string().max(200).parse(confirmation) });
+  } catch (e) {
+    return fail(e, tripId);
+  }
+  redirect(`${routes.home}?deleted=1`);
 }
 
 /** FR-2: the owner hands the trip to someone else and becomes an organizer. */

@@ -3,7 +3,8 @@
  *
  * GET never changes state: link-preview bots (iMessage, WhatsApp, email scanners) fetch this
  * page and must not consume or bind the link. The page shows nothing about the trip; the client
- * then POSTs (Server Action) to bind this device and open the trip.
+ * then POSTs (Server Action) to bind this device. The trip preview and "Accept invitation" only
+ * appear after that POST, and joining takes a second, explicit POST (Q37).
  */
 import type { Metadata } from "next";
 import { APP_NAME } from "@wandr/core/config";

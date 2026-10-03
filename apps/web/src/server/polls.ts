@@ -24,6 +24,7 @@ import {
   attendingMemberIds,
   can,
   extendDeadline,
+  isSplitDecision,
   pollOutcome,
   tripSize,
   type PollOutcome,
@@ -99,6 +100,28 @@ export async function closeDuePolls(db: Db, now: Date = new Date(), tripId?: str
   });
 }
 
+/**
+ * ST5: the poll's city was removed. Open (or paused) polls close now, by the organizer who removed
+ * it, with the winner when there is one; ties and low turnout are left for the organizer as with
+ * any close (FR-48, Q15). Service transaction; the caller checked the organizer.
+ */
+export async function closePollsForRemovedStop(tx: Tx, rows: PollRow[], closedByMemberId: string, now = new Date()) {
+  for (const p of rows) {
+    const status = pollStatus(p, now);
+    if (status !== "open" && status !== "paused") continue;
+    const outcome = await rawOutcome(tx, p);
+    await tx
+      .update(polls)
+      .set({
+        closedAt: now,
+        closedByMemberId,
+        pausedAt: null,
+        winningOptionId: outcome.kind === "winner" ? outcome.optionId : null,
+      })
+      .where(and(eq(polls.id, p.id), isNull(polls.closedAt)));
+  }
+}
+
 async function rawOutcome(tx: Tx, p: PollRow): Promise<PollOutcome> {
   const active = await activeMembers(tx, p.tripId);
   const opts = await tx.select({ id: pollOptions.id }).from(pollOptions).where(eq(pollOptions.pollId, p.id));
@@ -149,6 +172,8 @@ export interface PollView {
   /** FR-48: what the caller may do now (organizers; duo ties: owner only). */
   decisionActions: OrganizerPollAction[];
   pickable: string[];
+  /** Q15: tied (incl. a 50/50) at close. Flagged to organizers as "Split decision". */
+  splitDecision: boolean;
   /** Organizer controls while open. */
   canManage: boolean;
   runoffOfPollId: string | null;
@@ -207,6 +232,7 @@ function buildView(args: {
     winningOptionId: p.winningOptionId,
     decisionActions: decision.actions,
     pickable: decision.pickable === "any" ? results.map((r) => r.optionId) : decision.pickable,
+    splitDecision: me.isOrganizer && !!outcome && isSplitDecision(outcome),
     canManage: me.isOrganizer,
     runoffOfPollId: p.runoffOfPollId,
     runoffPollId: args.runoffPollId,

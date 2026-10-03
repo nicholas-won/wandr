@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ACTIONS, can, pickSuccessor, type Action, type Actor } from "../src/permissions";
+import { ACTIONS, can, managedMemberActors, pickSuccessor, type Action, type Actor } from "../src/permissions";
 import type { MemberRole, MemberStatus } from "../src/domain";
 
 const actor = (role: MemberRole, scope: "link" | "full" = "full", status: MemberStatus = "active", memberId = "me"): Actor => ({
@@ -144,6 +144,37 @@ describe("acting for managed members (FR-11, V-14)", () => {
       reason: "not_your_member",
     });
     expect(can(actor("organizer"), "vote", { target: { memberId: "x", role: "member" } })).toMatchObject({ reason: "not_your_member" });
+  });
+
+  it("organizers set attendance for anyone (Q13); members don't", () => {
+    const other = { target: { memberId: "x", role: "member" as const } };
+    expect(can(actor("organizer"), "set_attendance", other).allowed).toBe(true);
+    expect(can(actor("owner"), "set_attendance", other).allowed).toBe(true);
+    expect(can(actor("member"), "set_attendance", other)).toMatchObject({ reason: "not_your_member" });
+    // Still needs a code from a personal link (FR-5).
+    expect(can(actor("organizer", "link"), "set_attendance", other)).toMatchObject({ reason: "needs_code" });
+  });
+
+  it("organizers act for managed members whose manager left (JR11)", () => {
+    const orphan = { target: { memberId: "kid", role: "member" as const, managedByMemberId: "gone", managerActive: false } };
+    const managed = { target: { memberId: "kid", role: "member" as const, managedByMemberId: "mgr", managerActive: true } };
+    expect(can(actor("organizer"), "vote", orphan).allowed).toBe(true);
+    expect(can(actor("owner"), "vote", orphan).allowed).toBe(true);
+    expect(can(actor("member"), "vote", orphan)).toMatchObject({ reason: "not_your_member" });
+    // While the manager is around, only they act for them.
+    expect(can(actor("organizer"), "vote", managed)).toMatchObject({ reason: "not_your_member" });
+    expect(managedMemberActors({ managedByMemberId: "mgr", managerActive: true })).toBe("manager");
+    expect(managedMemberActors({ managedByMemberId: "gone", managerActive: false })).toBe("organizers");
+    expect(managedMemberActors({ managedByMemberId: null, managerActive: false })).toBeNull();
+  });
+});
+
+describe("delete_trip (JR3)", () => {
+  it("owner only, verified session only", () => {
+    expect(can(actor("owner"), "delete_trip").allowed).toBe(true);
+    expect(can(actor("organizer"), "delete_trip")).toMatchObject({ reason: "owner_only" });
+    expect(can(actor("member"), "delete_trip")).toMatchObject({ reason: "owner_only" });
+    expect(can(actor("owner", "link"), "delete_trip")).toMatchObject({ reason: "needs_code" });
   });
 });
 

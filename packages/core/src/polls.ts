@@ -48,7 +48,15 @@ export type PollOutcome =
       turnout: PollTurnout;
     };
 
-/** FR-48 / DN-16: minimum turnout is 50% of eligible voters (exactly 50% passes). */
+/**
+ * Q15: a tie for first place (a 50/50 between two options, or any tie) is a "Split decision",
+ * flagged to the organizer who decides. Low turnout is not a split decision.
+ */
+export function isSplitDecision(outcome: PollOutcome): boolean {
+  return outcome.kind === "needs_organizer" && outcome.reason === "tie";
+}
+
+/** FR-48 / DN-16 / Q15: minimum turnout is 50% of eligible voters (exactly 50% passes). */
 export function meetsTurnout(voted: number, eligible: number): boolean {
   if (eligible <= 0) return false;
   return voted * 2 >= eligible;

@@ -29,8 +29,11 @@ import {
   balanceFor,
   confirmInviteName,
   decideJoinRequest,
+  deleteTrip,
   getGroupLink,
   getPeople,
+  getSizeNotices,
+  tripDeletionPreview,
   inspectGroupLink,
   joinViaGroupLink,
   leaveTrip,
@@ -178,21 +181,17 @@ describe("join requests and approvals (FR-6, FR-8, J-20)", () => {
     );
   });
 
-  it("per-trip request limit (FR-15)", async () => {
+  it("no hourly/daily request limits on the group link (JR6)", async () => {
     const s = await setup();
-    for (let i = 0; i < JOIN_LIMITS.requestsPerTripHour; i++) {
+    for (let i = 0; i < 12; i++) {
       const u = await user(`P${i}`);
       expect((await joinViaGroupLink(d, { userId: u.id, token: s.token, name: `P${i}`, ageConfirmed: true })).kind).toBe(
         "pending",
       );
     }
-    const u = await user("One too many");
-    expect((await joinViaGroupLink(d, { userId: u.id, token: s.token, name: "X", ageConfirmed: true })).kind).toBe(
-      "limited",
-    );
   });
 
-  it("auto-pauses the link at 20 open requests and expires requests after 14 days (J-7)", async () => {
+  it("auto-pauses at 20 open requests and turns back on once they're handled (J-7, JR5)", async () => {
     const s = await setup();
     await asService(d, async (tx) => {
       for (let i = 0; i < JOIN_LIMITS.pendingCap - 1; i++) {
@@ -210,9 +209,23 @@ describe("join requests and approvals (FR-6, FR-8, J-20)", () => {
     const u = await user("Twentieth");
     const r = await joinViaGroupLink(d, { userId: u.id, token: s.token, name: "T", ageConfirmed: true });
     expect(r).toMatchObject({ kind: "pending", paused: true });
-    expect(await inspectGroupLink(d, s.token)).toBeNull();
-    expect(await getGroupLink(d, s.owner.id, s.tripId)).toMatchObject({ url: null, paused: true });
+    expect(await inspectGroupLink(d, s.token)).toMatchObject({ paused: true });
+    expect(await getGroupLink(d, s.owner.id, s.tripId)).toMatchObject({ paused: true });
     expect((await getPeople(d, { sub: s.owner.id }, s.tripId))!.linkPaused).toBe(true);
+    const late = await user("Late");
+    expect((await joinViaGroupLink(d, { userId: late.id, token: s.token, name: "L", ageConfirmed: true })).kind).toBe(
+      "link_off",
+    );
+
+    // The organizer handles one request: the same link works again, no new link needed (JR5).
+    if (r.kind !== "pending") throw new Error();
+    await decideJoinRequest(d, { userId: s.owner.id, tripId: s.tripId, memberId: r.memberId, approve: false });
+    expect(await inspectGroupLink(d, s.token)).toMatchObject({ paused: false });
+    expect(await getGroupLink(d, s.owner.id, s.tripId)).toMatchObject({ paused: false, url: expect.stringContaining(s.token) });
+    expect((await getPeople(d, { sub: s.owner.id }, s.tripId))!.linkPaused).toBe(false);
+    expect((await joinViaGroupLink(d, { userId: late.id, token: s.token, name: "L", ageConfirmed: true })).kind).toBe(
+      "pending",
+    );
   });
 
   it("texts organizers a Y/N question (FR-8)", async () => {
@@ -249,7 +262,10 @@ describe("invite-list numbers and identity (J-8, FR-5)", () => {
     expect(r).toEqual({ kind: "confirm_name", memberId: jessMember, expectedName: "Jess" });
     const c = await confirmInviteName(d, { userId: jess.id, token: s.token, memberId: jessMember, isMe: true, name: "Jessica" });
     expect(c).toEqual({ kind: "joined", tripId: s.tripId });
-    expect((await getPeople(d, { sub: jess.id }, s.tripId))!.me.memberId).toBe(jessMember);
+    const people = (await getPeople(d, { sub: jess.id }, s.tripId))!;
+    expect(people.me.memberId).toBe(jessMember);
+    // D67/C-JR8: they keep the name they typed.
+    expect(people.people.find((p) => p.isMe)!.displayName).toBe("Jessica");
   });
 
   it("'That's not me' becomes a pending request under the typed name", async () => {
@@ -437,5 +453,41 @@ describe("managed members and size notices (FR-11, FR-T3/T4/T5)", () => {
 
     await removeMember(d, { userId: s.owner.id, tripId: s.tripId, memberId: cy.memberId }); // group → duo
     expect((await getPeople(d, { sub: sam.id }, s.tripId))!.notices).toEqual(["group_to_duo"]);
+  });
+});
+
+describe("founder decisions: delete trip (JR3), managed members (JR11), feed notices (JR13)", () => {
+  it("only the owner deletes, after typing the name; hidden for everyone, rows kept", async () => {
+    const s = await setup();
+    const sam = await joinAndApprove(s, "Sam");
+    await expectCode(deleteTrip(d, { userId: sam.id, tripId: s.tripId, confirmation: "Sarah's surprise bach" }), "not_allowed");
+    expect(await tripDeletionPreview(d, s.owner.id, s.tripId)).toMatchObject({
+      tripName: "Sarah's surprise bach",
+      otherMembers: 1,
+    });
+    await expectCode(deleteTrip(d, { userId: s.owner.id, tripId: s.tripId, confirmation: "nope" }), "confirmation_mismatch");
+    await deleteTrip(d, { userId: s.owner.id, tripId: s.tripId, confirmation: "sarah's SURPRISE bach" });
+    expect(await getPeople(d, { sub: sam.id }, s.tripId)).toBeNull();
+    expect(await getPeople(d, { sub: s.owner.id }, s.tripId)).toBeNull();
+    expect(await inspectGroupLink(d, s.token)).toBeNull();
+    const [t] = await asService(d, (tx) => tx.select().from(trips).where(eq(trips.id, s.tripId)));
+    expect(t!.deletedAt).not.toBeNull();
+  });
+
+  it("organizers act for a managed member once their manager leaves", async () => {
+    const s = await setup();
+    const mia = await joinAndApprove(s, "Mia");
+    await addManagedMember(d, { userId: mia.id, tripId: s.tripId, name: "Kid" });
+    const kidOf = async () => (await getPeople(d, { sub: s.owner.id }, s.tripId))!.people.find((p) => p.displayName === "Kid")!;
+    expect(await kidOf()).toMatchObject({ managedByName: "Mia", managedByMe: false });
+    await leaveTrip(d, { userId: mia.id, tripId: s.tripId });
+    expect(await kidOf()).toMatchObject({ managedByName: "organizers", managedByMe: true });
+  });
+
+  it("size notices are available for the Ideas feed too", async () => {
+    const s = await setup();
+    const sam = await joinAndApprove(s, "Sam");
+    await joinAndApprove(s, "Cy"); // duo → group
+    expect(await getSizeNotices(d, { sub: sam.id }, s.tripId)).toEqual({ memberId: sam.memberId, notices: ["duo_to_group"] });
   });
 });

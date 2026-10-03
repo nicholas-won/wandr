@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { UserPlus } from "lucide-react";
+import { PhonePrompt } from "@/components/trip/phone-prompt";
 import { AppHeader } from "@/components/app/app-header";
 import { AvatarStack } from "@/components/ui/avatar";
 import { visibleSections } from "@/components/trip/sections";
 import { TripNav } from "@/components/trip/trip-nav";
 import { StageChips } from "@/components/trip/stage-chips";
 import { routes } from "@/lib/routes";
-import { loadTripView } from "@/server/context";
+import { loadTripView, phonePromptVisible, tripContext } from "@/server/context";
 
 /**
  * Responsive trip shell.
@@ -19,8 +20,15 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
   const view = await loadTripView(tripId);
   if (!view) notFound();
   const base = routes.trip(tripId);
+  // Q1: personal-link guests get a gentle "confirm your number" nudge after a few votes.
+  const { claims } = await tripContext(tripId);
+  const showPhonePrompt = await phonePromptVisible(
+    claims.sub ? "full" : "link",
+    view.ideas.filter((c) => c.myVote).length,
+  );
   const others = view.members.filter((m) => m.id !== view.me.memberId);
   const solo = view.trip.size === "solo";
+  const pendingRequests = claims.sub && view.me.role !== "member" ? view.invited.filter((m) => m.status === "pending").length : 0;
   const items = visibleSections(view).map((s) => ({
     href: s.segment ? `${base}/${s.segment}` : base,
     label: solo && s.soloLabel ? s.soloLabel : s.label,
@@ -40,6 +48,13 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
           <span className="truncate">With {others.map((m) => m.displayName).join(", ")}</span>
         </>
       )}
+      {/* D65: join requests are in-app only (no texts); organizers see a count here. RLS returns
+          pending rows to organizers only. */}
+      {pendingRequests > 0 ? (
+        <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground">
+          {pendingRequests} {pendingRequests === 1 ? "request" : "requests"}
+        </span>
+      ) : null}
     </Link>
   );
 
@@ -70,6 +85,7 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
             <StageChips tripId={tripId} />
             <TripNav items={items} base={base} />
           </header>
+          {showPhonePrompt ? <PhonePrompt signinHref={routes.signin(base)} /> : null}
           {children}
         </div>
       </div>

@@ -11,15 +11,15 @@ import { transitionNotices, tripSize, type SizeNoticeId } from "./trip-size";
 
 const DAY = 24 * 60 * 60 * 1000;
 
-/** Limits for the group link (J-7, FR-15). The numbers are the edge-case catalog's suggestions. */
+/**
+ * Limits for the group link (J-7). The only cap on join requests is the open-request pause (JR6:
+ * no per-hour/per-day limits). SMS-code rate limits (FR-15) live with sign-in, not here.
+ */
 export const JOIN_LIMITS = {
-  /** Open (unexpired) pending requests before the link auto-pauses (J-7). */
+  /** Open (unexpired) pending requests at which the link pauses itself (J-7, JR5). */
   pendingCap: 20,
   /** Pending requests expire after this many days (J-7). */
   pendingTtlDays: 14,
-  /** Join requests per trip, per hour and per day (FR-15 "per trip"). */
-  requestsPerTripHour: 10,
-  requestsPerTripDay: 30,
   /** "Restore member" window (M-11). */
   restoreWindowDays: 30,
   /** FR-17 minimum age to join with your own number. */
@@ -53,8 +53,6 @@ export interface GroupJoinInput {
   invitedMatch: { memberId: MemberId; displayName: string } | null;
   /** Open (unexpired) pending requests in the trip. */
   openPending: number;
-  /** Join requests made through the link in the last hour / day. */
-  recentRequests: { hour: number; day: number };
 }
 
 export type GroupJoinDecision =
@@ -65,8 +63,8 @@ export type GroupJoinDecision =
   | { kind: "request" }
   /** FR-7 / J-9: unknown numbers see "Ask the organizer to add you". Also used after a denial or removal. */
   | { kind: "ask_organizer" }
-  | { kind: "link_off" }
-  | { kind: "limited" };
+  /** The link was replaced, or it is paused at the open-request cap (J-7, JR5). */
+  | { kind: "link_off" };
 
 /**
  * What happens when a verified person uses the group link. Evaluated only after the code is
@@ -92,19 +90,22 @@ export function decideGroupJoin(i: GroupJoinInput): GroupJoinDecision {
     return { kind: "confirm_name", memberId: i.invitedMatch.memberId, expectedName: i.invitedMatch.displayName };
   }
   if (i.inviteListOnly) return { kind: "ask_organizer" };
-  if (
-    i.recentRequests.hour >= JOIN_LIMITS.requestsPerTripHour ||
-    i.recentRequests.day >= JOIN_LIMITS.requestsPerTripDay
-  ) {
-    return { kind: "limited" };
-  }
-  if (i.openPending >= JOIN_LIMITS.pendingCap) return { kind: "link_off" };
+  if (isGroupLinkPaused(i.openPending)) return { kind: "link_off" };
   return { kind: "request" };
 }
 
-/** J-7: pause the link once this request brings open requests to the cap. */
+/**
+ * J-7 / JR5: the group link is paused while open requests are at the cap, and turns back on by
+ * itself once requests are approved, denied or expire below the cap. Derived from the count, so
+ * there is no stored "paused" flag to clear.
+ */
+export function isGroupLinkPaused(openPending: number): boolean {
+  return openPending >= JOIN_LIMITS.pendingCap;
+}
+
+/** J-7: this request just brought open requests to the cap (record the pause once, JR12). */
 export function shouldPauseAfterRequest(openPendingIncludingNew: number): boolean {
-  return openPendingIncludingNew >= JOIN_LIMITS.pendingCap;
+  return openPendingIncludingNew === JOIN_LIMITS.pendingCap;
 }
 
 // ---------------------------------------------------------------------------

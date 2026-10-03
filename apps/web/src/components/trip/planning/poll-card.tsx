@@ -82,7 +82,11 @@ export function PollCard({ tripId, poll, detail = false }: { tripId: string; pol
             ) : null}
           </p>
         </div>
-        {poll.status === "decided" ? <Badge variant="primary">Decided</Badge> : null}
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {poll.status === "decided" ? <Badge variant="primary">Decided</Badge> : null}
+          {/* Q15: a tie (incl. 50/50) is flagged to organizers. */}
+          {poll.splitDecision ? <Badge>Split decision</Badge> : null}
+        </div>
       </div>
 
       <div role="group" aria-label="Options" className={cn("mt-3 gap-2", hasImages ? "grid grid-cols-2" : "flex flex-col")}>
@@ -140,7 +144,9 @@ export function PollCard({ tripId, poll, detail = false }: { tripId: string; pol
 
       {poll.decisionActions.length ? (
         <div className="mt-3 space-y-2 rounded-lg bg-muted p-3">
-          <p className="text-sm font-semibold">No automatic winner. You decide:</p>
+          <p className="text-sm font-semibold">
+            {poll.splitDecision ? "Split decision: it's a tie. You decide:" : "No automatic winner. You decide:"}
+          </p>
           <div className="flex flex-wrap gap-2">
             {poll.decisionActions.includes("pick")
               ? poll.options

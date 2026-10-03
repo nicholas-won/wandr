@@ -198,12 +198,6 @@ export interface DatedPlanItem {
   dayIndex: number;
 }
 
-export interface DatedPoll {
-  id: string;
-  closesAt: Date | null;
-  open: boolean;
-}
-
 export type DateChangeChoice = "shift" | "unschedule";
 
 export interface DateChangeImpact {
@@ -216,7 +210,6 @@ export interface DateChangeImpact {
     /** Shifting keeps the item on the same day of the Stop (Day N), i.e. moves it by deltaDays. */
     canShift: boolean;
   }[];
-  polls: { id: string }[];
 }
 
 /**
@@ -225,14 +218,13 @@ export interface DateChangeImpact {
  * - if the start date moves, every scheduled item moves with it unless the organizer
  *   unschedules it ("needs a day"); items past the new last day can only be unscheduled;
  * - if only the length changes, items past the new last day are affected.
- * Open polls of the Stop are listed whenever the dates change (S-4). Returns null if nothing
- * about the dates changed.
+ * ST2: polls are left alone (no deadline shift, no pause). Returns null if nothing about the
+ * dates changed.
  */
 export function stopDateChangeImpact(
   before: StopDates,
   after: StopDates,
   items: readonly DatedPlanItem[],
-  polls: readonly DatedPoll[],
 ): DateChangeImpact | null {
   const same =
     before.startDate === after.startDate &&
@@ -248,45 +240,77 @@ export function stopDateChangeImpact(
     deltaDays,
     newDayCount,
     planItems: affected.map((i) => ({ id: i.id, dayIndex: i.dayIndex, canShift: fits(i) })),
-    polls: polls.filter((p) => p.open).map((p) => ({ id: p.id })),
   };
 }
 
 /**
- * Apply the organizer's choices. Missing choices are an error (we always ask, FR-S10), as is
- * "shift" for an item that no longer fits. Poll "shift" moves its deadline by deltaDays;
- * "unschedule" pauses it (S-4).
+ * Apply the organizer's choices for plan items. Missing choices are an error (we always ask,
+ * FR-S10), as is "shift" for an item that no longer fits. Polls are never touched (ST2).
  */
 export function resolveDateChange(
   impact: DateChangeImpact,
   choices: Readonly<Record<string, DateChangeChoice>>,
-):
-  | {
-      ok: true;
-      unscheduleItemIds: string[];
-      shiftPollIds: string[];
-      pausePollIds: string[];
-    }
-  | { ok: false; missing: string[]; invalid: string[] } {
+): { ok: true; unscheduleItemIds: string[] } | { ok: false; missing: string[]; invalid: string[] } {
   const missing: string[] = [];
   const invalid: string[] = [];
   const unscheduleItemIds: string[] = [];
-  const shiftPollIds: string[] = [];
-  const pausePollIds: string[] = [];
   for (const i of impact.planItems) {
     const c = choices[i.id];
     if (!c) missing.push(i.id);
     else if (c === "shift" && !i.canShift) invalid.push(i.id);
     else if (c === "unschedule") unscheduleItemIds.push(i.id);
   }
-  for (const p of impact.polls) {
-    const c = choices[p.id];
-    if (!c) missing.push(p.id);
-    else if (c === "shift") shiftPollIds.push(p.id);
-    else pausePollIds.push(p.id);
-  }
   if (missing.length || invalid.length) return { ok: false, missing, invalid };
-  return { ok: true, unscheduleItemIds, shiftPollIds, pausePollIds };
+  return { ok: true, unscheduleItemIds };
+}
+
+// ---------------------------------------------------------------------------
+// Removing a city (S-5, ST5)
+// ---------------------------------------------------------------------------
+
+export interface StopRemovalInput {
+  /** Stops in the trip, including this one. */
+  stopCount: number;
+  ideaIds: readonly string[];
+  polls: readonly { id: string; open: boolean }[];
+  planItemIds: readonly string[];
+  expenseIds: readonly string[];
+}
+
+export type StopRemovalImpact =
+  | { ok: false; reason: "last_stop" }
+  | {
+      ok: true;
+      /** Ideas move to Unsorted with their votes intact. */
+      ideasToUnsorted: string[];
+      /** Open polls are closed (and every poll of the Stop is unlinked from it). */
+      pollsToClose: string[];
+      pollsToUnlink: string[];
+      /** Plan items in this Stop are removed. */
+      planItemsRemoved: string[];
+      /** Expenses stay (money history is kept, NFR-5) but no longer point at the Stop. */
+      expensesUnlinked: string[];
+      /** Anything beyond moving ideas needs the organizer to confirm after seeing this preview. */
+      requiresConfirm: boolean;
+    };
+
+/**
+ * ST5: organizers can remove a city even with polls, plans or expenses attached. Pure: lists
+ * what happens; the server shows it as a preview and applies it once confirmed. The last Stop
+ * can't be removed (every trip has at least one, §5).
+ */
+export function stopRemovalImpact(i: StopRemovalInput): StopRemovalImpact {
+  if (i.stopCount <= 1) return { ok: false, reason: "last_stop" };
+  const pollsToClose = i.polls.filter((p) => p.open).map((p) => p.id);
+  return {
+    ok: true,
+    ideasToUnsorted: [...i.ideaIds],
+    pollsToClose,
+    pollsToUnlink: i.polls.map((p) => p.id),
+    planItemsRemoved: [...i.planItemIds],
+    expensesUnlinked: [...i.expenseIds],
+    requiresConfirm: i.polls.length + i.planItemIds.length + i.expenseIds.length > 0,
+  };
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

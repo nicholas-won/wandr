@@ -17,12 +17,16 @@ import {
   expenses,
   expensePayers,
   expenseShares,
+  ideas,
   memberContacts,
   members,
   payments,
+  planItems,
+  polls,
   smsOpenQuestions,
   trips,
   users,
+  votes,
   withSession,
   type Claims,
   type Db,
@@ -32,9 +36,12 @@ import {
   can,
   canRestore,
   decideGroupJoin,
+  deleteConfirmationMatches,
+  isGroupLinkPaused,
   isPendingExpired,
   JOIN_LIMITS,
   lastSizeTransition,
+  managedMemberActors,
   money,
   noticeBeforeGrowingFromSolo,
   openBalancesFor,
@@ -48,6 +55,7 @@ import {
   type MemberRole,
   type MemberStatus,
   type SizeNoticeId,
+  type TripDeletionPreview,
   type TripSize,
 } from "@wandr/core";
 import { randomToken, sha256Hex } from "@/lib/auth/crypto";
@@ -66,6 +74,7 @@ export class MembershipError extends Error {
       | "not_allowed"
       | "not_found"
       | "owner_cannot_leave"
+      | "confirmation_mismatch"
       | "resolve_balance_first"
       | "bad_target"
       | "no_anchor_expense"
@@ -138,9 +147,7 @@ export async function getGroupLink(db: Db, userId: string, tripId: string): Prom
     const [latest] = await tx
       .select({ action: auditLog.action, data: auditLog.data })
       .from(auditLog)
-      .where(
-        and(eq(auditLog.tripId, tripId), inArray(auditLog.action, ["group_link.created", "group_link.auto_paused"])),
-      )
+      .where(and(eq(auditLog.tripId, tripId), eq(auditLog.action, "group_link.created")))
       .orderBy(desc(auditLog.createdAt))
       .limit(1);
     let url: string | null = null;
@@ -153,9 +160,27 @@ export async function getGroupLink(db: Db, userId: string, tripId: string): Prom
       url,
       inviteListOnly: trip.inviteListOnly,
       outsiderName: trip.outsiderName,
-      paused: !trip.hash && latest?.action === "group_link.auto_paused",
+      paused: await linkPausedNow(tx, tripId, !!trip.hash),
     };
   });
+}
+
+/**
+ * J-7 / JR5: paused while open requests are at the cap; it turns back on by itself once the
+ * organizer handles requests (or they expire) below the cap. Links paused by the old rule (hash
+ * cleared) stay off until the organizer makes a new one.
+ */
+async function linkPausedNow(tx: Tx, tripId: string, hasLink: boolean, now = new Date()): Promise<boolean> {
+  if (!hasLink) {
+    const [last] = await tx
+      .select({ action: auditLog.action })
+      .from(auditLog)
+      .where(and(eq(auditLog.tripId, tripId), inArray(auditLog.action, ["group_link.created", "group_link.auto_paused"])))
+      .orderBy(desc(auditLog.createdAt))
+      .limit(1);
+    return last?.action === "group_link.auto_paused";
+  }
+  return isGroupLinkPaused(await openPendingCount(tx, tripId, now));
 }
 
 /** Create the group link, or replace it (FR-10: the old one stops working). */
@@ -199,16 +224,26 @@ async function tripForToken(tx: Tx, token: string): Promise<LinkedTrip | null> {
   const [t] = await tx
     .select({ tripId: trips.id, name: trips.name, outsider: trips.outsiderName, inviteListOnly: trips.inviteListOnly })
     .from(trips)
-    .where(eq(trips.groupLinkHash, sha256Hex(token)))
+    .where(and(eq(trips.groupLinkHash, sha256Hex(token)), isNull(trips.deletedAt))) // JR3
     .limit(1);
   if (!t) return null;
   return { tripId: t.tripId, displayName: t.outsider?.trim() || t.name, inviteListOnly: t.inviteListOnly };
 }
 
-/** GET /j/[token]: only the name shown to outsiders (J-7). Changes nothing. */
-export async function inspectGroupLink(db: Db, token: string): Promise<{ tripId: string; tripName: string } | null> {
-  const t = await asService(db, (tx) => tripForToken(tx, token));
-  return t ? { tripId: t.tripId, tripName: t.displayName } : null;
+/** GET /j/[token]: only the name shown to outsiders (J-7), and whether it's paused (JR5). Changes nothing. */
+export async function inspectGroupLink(
+  db: Db,
+  token: string,
+): Promise<{ tripId: string; tripName: string; paused: boolean } | null> {
+  return asService(db, async (tx) => {
+    const t = await tripForToken(tx, token);
+    if (!t) return null;
+    return {
+      tripId: t.tripId,
+      tripName: t.displayName,
+      paused: isGroupLinkPaused(await openPendingCount(tx, t.tripId, new Date())),
+    };
+  });
 }
 
 export type JoinOutcome =
@@ -217,8 +252,7 @@ export type JoinOutcome =
   | { kind: "pending"; tripId: string; memberId: string; paused: boolean }
   | { kind: "already_pending" }
   | { kind: "ask_organizer" }
-  | { kind: "link_off" }
-  | { kind: "limited" };
+  | { kind: "link_off" };
 
 async function verifiedContact(tx: Tx, userId: string) {
   const [u] = await tx
@@ -242,20 +276,8 @@ async function inviteMatches(tx: Tx, tripId: string, contact: { phone: string | 
     .where(and(eq(members.tripId, tripId), eq(members.status, "invited"), byContact));
 }
 
-async function requestCounts(tx: Tx, tripId: string, now: Date) {
-  const [r] = await tx
-    .select({
-      day: sql<number>`count(*)::int`,
-      hour: sql<number>`count(*) filter (where ${auditLog.createdAt} >= ${new Date(now.getTime() - 3_600_000).toISOString()})::int`,
-    })
-    .from(auditLog)
-    .where(
-      and(
-        eq(auditLog.tripId, tripId),
-        eq(auditLog.action, "member.join_requested"),
-        gte(auditLog.createdAt, new Date(now.getTime() - DAY)),
-      ),
-    );
+/** Open (unexpired) join requests (J-7). JR6: the only limit on the group link. */
+async function openPendingCount(tx: Tx, tripId: string, now: Date): Promise<number> {
   const [p] = await tx
     .select({ n: sql<number>`count(*)::int` })
     .from(members)
@@ -266,10 +288,14 @@ async function requestCounts(tx: Tx, tripId: string, now: Date) {
         gte(members.createdAt, new Date(now.getTime() - JOIN_LIMITS.pendingTtlDays * DAY)),
       ),
     );
-  return { recent: { hour: r?.hour ?? 0, day: r?.day ?? 0 }, openPending: p?.n ?? 0 };
+  return p?.n ?? 0;
 }
 
-/** Insert a pending request (or refresh an expired one) and auto-pause the link at the cap (J-7). */
+/**
+ * Insert a pending request (or refresh an expired one). At the cap the link pauses itself (J-7);
+ * it isn't turned off, so it resumes once requests are handled (JR5). The pause is recorded once
+ * for the organizer banner (JR12).
+ */
 async function createRequest(
   tx: Tx,
   args: { tripId: string; userId: string; name: string; now: Date; reuseMemberId?: string; mismatchFor?: string },
@@ -296,10 +322,8 @@ async function createRequest(
     entityId: memberId,
     data: { via: "group_link", ...(args.mismatchFor ? { notInvitee: args.mismatchFor } : {}) },
   });
-  const { openPending } = await requestCounts(tx, args.tripId, args.now);
-  let paused = false;
+  const openPending = await openPendingCount(tx, args.tripId, args.now);
   if (shouldPauseAfterRequest(openPending)) {
-    await tx.update(trips).set({ groupLinkHash: null }).where(eq(trips.id, args.tripId));
     await tx.insert(auditLog).values({
       tripId: args.tripId,
       action: "group_link.auto_paused",
@@ -307,9 +331,8 @@ async function createRequest(
       entityId: args.tripId,
       data: { openPending },
     });
-    paused = true;
   }
-  return { memberId, paused };
+  return { memberId, paused: isGroupLinkPaused(openPending) };
 }
 
 function cleanName(input: string): string | null {
@@ -343,15 +366,12 @@ export async function joinViaGroupLink(
     const matches = await inviteMatches(tx, trip.tripId, contact);
     const match = existing?.status === "invited" ? { id: existing.id, displayName: existing.displayName } : matches[0];
     const expiredPending = existing?.status === "pending" && isPendingExpired(existing.createdAt, now);
-    const counts = await requestCounts(tx, trip.tripId, now);
-
     const decision = decideGroupJoin({
       linkActive: true,
       inviteListOnly: trip.inviteListOnly,
       existing: existing && !expiredPending ? { status: existing.status } : null,
       invitedMatch: match ? { memberId: match.id, displayName: match.displayName } : null,
-      openPending: counts.openPending,
-      recentRequests: counts.recent,
+      openPending: await openPendingCount(tx, trip.tripId, now),
     });
     await tx.insert(auditLog).values({
       tripId: trip.tripId,
@@ -406,9 +426,11 @@ export async function confirmInviteName(
       return mine.status === "active" ? ({ kind: "joined", tripId: trip.tripId } as const) : ({ kind: "already_pending" } as const);
     }
     if (args.isMe) {
+      // D67/C-JR8: the invitee's own spelling wins over the organizer's invite-list name.
+      const typed = cleanName(args.name);
       await tx
         .update(members)
-        .set({ userId: args.userId, status: "active", joinedAt: now })
+        .set({ userId: args.userId, status: "active", joinedAt: now, ...(typed ? { displayName: typed } : {}) })
         .where(and(eq(members.id, match.id), eq(members.status, "invited")));
       await tx.insert(auditLog).values({
         tripId: trip.tripId,
@@ -421,14 +443,12 @@ export async function confirmInviteName(
     }
     const name = cleanName(args.name) ?? "Guest";
     if (trip.inviteListOnly) return { kind: "ask_organizer" } as const;
-    const counts = await requestCounts(tx, trip.tripId, now);
     const decision = decideGroupJoin({
       linkActive: true,
       inviteListOnly: false,
       existing: null,
       invitedMatch: null,
-      openPending: counts.openPending,
-      recentRequests: counts.recent,
+      openPending: await openPendingCount(tx, trip.tripId, now),
     });
     if (decision.kind !== "request") return decision as JoinOutcome;
     const r = await createRequest(tx, { tripId: trip.tripId, userId: args.userId, name, now, mismatchFor: match.id });
@@ -966,9 +986,76 @@ export async function removeMember(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Deleting a trip (JR3, J-10, NFR-5, NFR-7)
+// ---------------------------------------------------------------------------
+
+async function requireOwner(db: Db, userId: string, tripId: string): Promise<MeRow> {
+  const me = await myMember(db, userId, tripId);
+  if (!me || !can({ memberId: me.id, role: me.role, status: me.status, scope: "full" }, "delete_trip").allowed) {
+    throw new MembershipError("not_allowed");
+  }
+  return me;
+}
+
+/** JR3: what deleting the trip takes away, for the confirmation screen. Owner only. */
+export async function tripDeletionPreview(db: Db, userId: string, tripId: string): Promise<TripDeletionPreview> {
+  const me = await requireOwner(db, userId, tripId);
+  return asService(db, async (tx) => {
+    const [trip] = await tx.select({ name: trips.name }).from(trips).where(eq(trips.id, tripId));
+    return {
+      tripName: trip?.name ?? "",
+      otherMembers: await tx.$count(
+        members,
+        and(eq(members.tripId, tripId), eq(members.status, "active"), ne(members.id, me.id)),
+      ),
+      ideas: await tx.$count(ideas, eq(ideas.tripId, tripId)),
+      votes: await tx.$count(votes, eq(votes.tripId, tripId)),
+      polls: await tx.$count(polls, eq(polls.tripId, tripId)),
+      planItems: await tx.$count(planItems, eq(planItems.tripId, tripId)),
+      expenses: await tx.$count(expenses, and(eq(expenses.tripId, tripId), isNull(expenses.deletedAt))),
+      payments: await tx.$count(payments, eq(payments.tripId, tripId)),
+    };
+  });
+}
+
 /**
- * M-4: leave a trip. The owner must hand ownership over first (FR-2, J-10). An open balance is
- * not wiped: it stays on the ledger under "former member" (M-1/M-2); the UI shows it first.
+ * JR3: the owner deletes the whole trip, after typing its name. Soft delete: `deleted_at` hides
+ * the trip and everything in it from every client (RLS, app.trip_live); nothing is destroyed, so
+ * money history is preserved (NFR-5/NFR-7). Personal links stop working and open text questions
+ * are dropped.
+ */
+export async function deleteTrip(
+  db: Db,
+  args: { userId: string; tripId: string; confirmation: string; now?: Date },
+): Promise<void> {
+  const now = args.now ?? new Date();
+  const me = await requireOwner(db, args.userId, args.tripId);
+  await asService(db, async (tx) => {
+    const [trip] = await tx
+      .select({ name: trips.name, deletedAt: trips.deletedAt })
+      .from(trips)
+      .where(eq(trips.id, args.tripId));
+    if (!trip || trip.deletedAt) throw new MembershipError("not_found");
+    if (!deleteConfirmationMatches(args.confirmation, trip.name)) throw new MembershipError("confirmation_mismatch");
+    await tx.update(trips).set({ deletedAt: now, groupLinkHash: null }).where(eq(trips.id, args.tripId));
+    const ids = (await tx.select({ id: members.id }).from(members).where(eq(members.tripId, args.tripId))).map((m) => m.id);
+    await revokeLinksForMembers(tx, ids);
+    if (ids.length) await tx.delete(smsOpenQuestions).where(inArray(smsOpenQuestions.memberId, ids));
+    await tx.insert(auditLog).values({
+      tripId: args.tripId,
+      actorMemberId: me.id,
+      action: "trip.deleted",
+      entity: "trip",
+      entityId: args.tripId,
+    });
+  });
+}
+
+/**
+ * M-4: leave a trip. The owner can't leave: they transfer ownership first, or delete the trip
+ * (JR3, FR-2, J-10). An open balance is not wiped: it stays on the ledger under "former member"
+ * (M-1/M-2); the UI shows it first.
  */
 export async function leaveTrip(db: Db, args: { userId: string; tripId: string; now?: Date }): Promise<void> {
   const now = args.now ?? new Date();
@@ -1044,9 +1131,10 @@ export type Person = {
   displayName: string;
   role: MemberRole;
   status: MemberStatus;
+  /** Manager's name, or "organizers" once the manager left (JR11). Null if not managed. */
   managedByName: string | null;
   isMe: boolean;
-  /** The caller manages this person (FR-11). */
+  /** The caller acts for this person: their manager, or an organizer after the manager left (FR-11, JR11). */
   managedByMe: boolean;
 };
 
@@ -1094,29 +1182,34 @@ export async function getPeople(db: Db, claims: Claims, tripId: string, now = ne
   const requests = isOrganizer ? await listJoinRequests(db, claims.sub!, tripId, now) : [];
   const extra = await asService(db, async (tx) => {
     const [trip] = await tx.select({ hash: trips.groupLinkHash }).from(trips).where(eq(trips.id, tripId));
-    const [paused] = await tx
-      .select({ action: auditLog.action })
-      .from(auditLog)
-      .where(and(eq(auditLog.tripId, tripId), inArray(auditLog.action, ["group_link.created", "group_link.auto_paused"])))
-      .orderBy(desc(auditLog.createdAt))
-      .limit(1);
-    return { linkPaused: !trip?.hash && paused?.action === "group_link.auto_paused", notices: await sizeNotices(tx, tripId, me.id, me.noticesSeen) };
+    return {
+      linkPaused: isOrganizer ? await linkPausedNow(tx, tripId, !!trip?.hash, now) : false,
+      notices: await sizeNotices(tx, tripId, me.id, me.noticesSeen),
+    };
   });
   const notices = [...extra.notices];
   if (me.role === "owner" && noticeBeforeGrowingFromSolo(size, me.noticesSeen)) notices.unshift("solo_to_duo");
+  const statusOf = new Map(rows.map((r) => [r.id, r.status]));
 
   return {
     me: { memberId: me.id, role: me.role, verified: !!claims.sub },
     size,
-    people: active.map((r) => ({
-      id: r.id,
-      displayName: r.displayName,
-      role: r.role,
-      status: r.status,
-      managedByName: r.managedBy ? (nameOf.get(r.managedBy) ?? null) : null,
-      isMe: r.id === me.id,
-      managedByMe: r.managedBy === me.id,
-    })),
+    people: active.map((r) => {
+      // JR11: once the manager leaves or is removed, organizers act for the managed member.
+      const actors = managedMemberActors({
+        managedByMemberId: r.managedBy,
+        managerActive: !!r.managedBy && statusOf.get(r.managedBy) === "active",
+      });
+      return {
+        id: r.id,
+        displayName: r.displayName,
+        role: r.role,
+        status: r.status,
+        managedByName: actors === "manager" ? (nameOf.get(r.managedBy!) ?? null) : actors === "organizers" ? "organizers" : null,
+        isMe: r.id === me.id,
+        managedByMe: actors === "manager" ? r.managedBy === me.id : actors === "organizers" && isOrganizer,
+      };
+    }),
     invited: rows.filter((r) => r.status === "invited").map((r) => ({ id: r.id, displayName: r.displayName })),
     requests,
     former: rows
@@ -1125,6 +1218,29 @@ export async function getPeople(db: Db, claims: Claims, tripId: string, now = ne
     linkPaused: isOrganizer && extra.linkPaused,
     notices,
   };
+}
+
+/**
+ * JR13: the same one-time size notices for the Ideas feed. Active members only; read as the
+ * caller first so RLS decides membership.
+ */
+export async function getSizeNotices(db: Db, claims: Claims, tripId: string): Promise<{ memberId: string; notices: SizeNoticeId[] } | null> {
+  const me = await withSession(db, claims, async (tx) => {
+    const [row] = await tx
+      .select({ id: members.id, userId: members.userId, status: members.status, noticesSeen: members.noticesSeen })
+      .from(members)
+      .where(
+        and(
+          eq(members.tripId, tripId),
+          claims.sub ? eq(members.userId, claims.sub) : eq(members.id, claims.link_member ?? "00000000-0000-0000-0000-000000000000"),
+        ),
+      )
+      .limit(1);
+    return row && row.status === "active" ? row : null;
+  });
+  if (!me) return null;
+  const notices = await asService(db, (tx) => sizeNotices(tx, tripId, me.id, me.noticesSeen));
+  return { memberId: me.id, notices };
 }
 
 /**

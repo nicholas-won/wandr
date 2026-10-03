@@ -1,4 +1,4 @@
--- 0008_money_decisions_rls.sql: RLS and guards for the founder money decisions (2026-10-02).
+-- 0009_money_decisions_rls.sql: RLS and guards for the founder money decisions (2026-10-02).
 --
 -- Hand-written, idempotent (create or replace / drop-then-create). Runs as one file.
 --   Q23c personal-only expenses are visible ONLY to their member (not organizers), never
