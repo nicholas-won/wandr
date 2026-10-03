@@ -15,7 +15,7 @@ import {
   pickPlaceForIdea,
   searchPlacesForTrip,
 } from "@/server/ideas";
-import { PlacePickError, placeSearchConnected, type PlaceSearchOutcome } from "@/server/place-search";
+import { PlacePickError, type PlaceSearchOutcome } from "@/server/place-search";
 import { EVENTS } from "@/inngest/client";
 import { enqueue } from "@/server/jobs";
 import { freshLinkFor, inviteMember } from "@/server/invites";
@@ -155,11 +155,6 @@ function placeFailure(e: unknown, tripId: string): ActionResult {
     return { ok: false, error: "Confirm your number to fix ideas.", signin: routes.signin(routes.trip(tripId)) };
   }
   return failure(e, tripId);
-}
-
-/** Is Google place search configured? (no key → the picker offers rename only) */
-export async function placeSearchStatusAction(): Promise<{ connected: boolean }> {
-  return { connected: placeSearchConnected() };
 }
 
 export async function searchPlacesAction(
