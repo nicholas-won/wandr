@@ -6,7 +6,16 @@ import { z } from "zod";
 import { AuthError, requireFull } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { tripContext } from "@/server/context";
-import { addIdea, addListiclePicks, fixIdea } from "@/server/ideas";
+import {
+  addIdea,
+  addIdeaFromPlace,
+  addListiclePicks,
+  fixIdea,
+  IdeaInputError,
+  pickPlaceForIdea,
+  searchPlacesForTrip,
+} from "@/server/ideas";
+import { PlacePickError, placeSearchConnected, type PlaceSearchOutcome } from "@/server/place-search";
 import { EVENTS } from "@/inngest/client";
 import { enqueue } from "@/server/jobs";
 import { freshLinkFor, inviteMember } from "@/server/invites";
@@ -71,7 +80,11 @@ export async function addIdeaAction(tripId: string, raw: string): Promise<Action
 export async function fixIdeaAction(tripId: string, ideaId: string, title: string): Promise<ActionResult> {
   try {
     const { db, claims, view } = await me(tripId);
-    await fixIdea(db, claims, { ideaId, title });
+    if (!title.trim()) return { ok: false, error: "Type a name." };
+    const rows = await fixIdea(db, claims, { ideaId, title });
+    if (rows.length === 0) {
+      return { ok: false, error: "Confirm your number to fix ideas.", signin: routes.signin(routes.trip(tripId)) };
+    }
     after(() => track(db, { name: "idea_fixed", tripId, memberId: view.me.memberId, props: { ideaId } }));
     refresh();
     return { ok: true };
@@ -127,5 +140,74 @@ export async function shareLinkAction(tripId: string, memberId: string): Promise
     return { ok: true, link: link.url };
   } catch (e) {
     return failure(e, tripId, `${routes.trip(tripId)}/people`);
+  }
+}
+
+// --- Place search: "wrong place? fix" (FR-23) and add by hand (FR-L20). Never an AI import. ---
+
+const placeIdSchema = z.string().regex(/^[A-Za-z0-9_-]{10,300}$/);
+
+function placeFailure(e: unknown, tripId: string): ActionResult {
+  if (e instanceof PlacePickError) {
+    return { ok: false, error: e.message === e.code ? "Couldn't use that place. Try another." : e.message };
+  }
+  if (e instanceof IdeaInputError) {
+    return { ok: false, error: "Confirm your number to fix ideas.", signin: routes.signin(routes.trip(tripId)) };
+  }
+  return failure(e, tripId);
+}
+
+/** Is Google place search configured? (no key → the picker offers rename only) */
+export async function placeSearchStatusAction(): Promise<{ connected: boolean }> {
+  return { connected: placeSearchConnected() };
+}
+
+export async function searchPlacesAction(
+  tripId: string,
+  query: string,
+  ideaId?: string | null,
+): Promise<{ ok: true; outcome: PlaceSearchOutcome } | Extract<ActionResult, { ok: false }>> {
+  try {
+    const { db, claims, session } = await tripContext(tripId);
+    if (!session.user) return { ok: false, error: "Confirm your number to search.", signin: routes.signin(routes.trip(tripId)) };
+    const outcome = await searchPlacesForTrip(db, claims, {
+      tripId,
+      ideaId: ideaId ? z.uuid().parse(ideaId) : null,
+      query: z.string().max(200).parse(query),
+    });
+    return { ok: true, outcome };
+  } catch (e) {
+    return placeFailure(e, tripId) as Extract<ActionResult, { ok: false }>;
+  }
+}
+
+/** FR-23: pick the right place for an idea. */
+export async function pickPlaceAction(tripId: string, ideaId: string, placeId: string): Promise<ActionResult> {
+  try {
+    const { db, claims, view } = await me(tripId);
+    await pickPlaceForIdea(db, claims, { tripId, ideaId: z.uuid().parse(ideaId), placeId: placeIdSchema.parse(placeId) });
+    after(() => track(db, { name: "idea_fixed", tripId, memberId: view.me.memberId, props: { ideaId, via: "place_search" } }));
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return placeFailure(e, tripId);
+  }
+}
+
+/** FR-L20: add an idea by picking a place. Free, no AI. */
+export async function addPlaceAction(tripId: string, placeId: string): Promise<ActionResult> {
+  try {
+    const { db, claims, view, session } = await me(tripId);
+    if (!session.user) {
+      return { ok: false, error: "Confirm your number to add ideas.", signin: routes.signin(routes.trip(tripId)) };
+    }
+    const r = await addIdeaFromPlace(db, claims, { tripId, placeId: placeIdSchema.parse(placeId) });
+    after(() =>
+      track(db, { name: "idea_added", tripId, memberId: view.me.memberId, props: { ideaId: r.ideaId, via: "place_search" } }),
+    );
+    refresh();
+    return { ok: true, message: r.merged ? "Already on the trip. Added you as a sharer." : undefined };
+  } catch (e) {
+    return placeFailure(e, tripId);
   }
 }
