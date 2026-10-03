@@ -12,7 +12,7 @@ async function startTrip(page: Page) {
   const form = page.locator("form").filter({ has: page.locator('input[name="destinations"]') });
   await form.locator('input[name="destinations"]').fill("Lisbon");
   await form.locator('input[name="name"]').fill("Nick & Sam");
-  await form.getByRole("button").click();
+  await form.getByRole("button", { name: "Create trip" }).click();
   await expect(page.getByRole("heading", { name: "Nick & Sam" }).first()).toBeVisible();
 }
 
@@ -84,5 +84,17 @@ test("duo trip: idea, invite, personal link, open votes", async ({ page, browser
 
   await page.reload();
   await expect(page.getByText(/Sam: Down/)).toBeVisible();
+
+  // FR-46: comment threads. Nick (signed in) comments; Sam reads it from the personal link,
+  // and is asked to confirm a number before writing (FR-5).
+  await page.getByRole("button", { name: "Comment", exact: true }).first().click();
+  await page.getByRole("textbox", { name: "Comment", exact: true }).fill("Go early, the line gets long");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Go early, the line gets long")).toBeVisible();
+  await expect(page.getByText("sending…")).toHaveCount(0);
+  await samPage.reload();
+  await samPage.getByRole("button", { name: "1 comment", exact: true }).first().click();
+  await expect(samPage.getByText("Go early, the line gets long")).toBeVisible();
+  await expect(samPage.getByRole("link", { name: "Confirm your number" })).toBeVisible();
   await sam.close();
 });

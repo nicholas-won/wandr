@@ -47,8 +47,15 @@
     {
       "idx": 6,
       "version": "7",
-      "when": 1790954423572,
-      "tag": "0007_founder_decisions",
+      "when": 1790954257030,
+      "tag": "0007_comment_threads",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791051331142,
+      "tag": "0008_founder_decisions",
       "breakpoints": true
     }
   ]

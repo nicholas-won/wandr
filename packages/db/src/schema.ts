@@ -349,6 +349,9 @@ export const comments = pgTable(
     body: text("body").notNull(),
     hiddenFrom: hiddenFrom(),
     createdAt: createdAt(),
+    // FR-46: edits are marked; deletes are soft (body cleared) so threads keep their shape.
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [index("comments_idea_idx").on(t.ideaId)],
 );

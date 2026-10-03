@@ -256,6 +256,56 @@ async function recordBasis(db: Db, tripId: string, ctx: PlanContext) {
   );
 }
 
+/** The Stop's location: its own coordinates, else the middle of its located ideas (for weather). */
+export function stopLocation(ctx: PlanContext & { stopLatLng?: { lat: number; lng: number } | null }) {
+  if (ctx.stopLatLng) return ctx.stopLatLng;
+  const pts = ctx.input.items.filter((i) => i.lat != null && i.lng != null);
+  if (pts.length === 0) return null;
+  return {
+    lat: pts.reduce((a, i) => a + i.lat!, 0) / pts.length,
+    lng: pts.reduce((a, i) => a + i.lng!, 0) / pts.length,
+  };
+}
+
+/** Decided ideas that aren't on the plan yet (D70: people can build the plan by hand). */
+export function unplacedItems(ctx: PlanContext) {
+  const placed = new Set(ctx.current.items.map((p) => p.ideaId));
+  return ctx.input.items.filter((i) => !placed.has(i.id));
+}
+
+/**
+ * D70 / C-Q27: put an idea on a day (and optionally a time) by hand. Manual placements are
+ * locked, so "Arrange my days" works around them instead of moving them (FR-O4).
+ */
+export async function addToPlan(
+  db: Db,
+  claims: Claims,
+  args: { tripId: string; stopId: string; ideaId: string; dayIndex: number; startMinute: number | null },
+) {
+  if (!Number.isInteger(args.dayIndex) || args.dayIndex < 0 || args.dayIndex > 60) throw new Error("invalid_day");
+  if (args.startMinute !== null && (!Number.isInteger(args.startMinute) || args.startMinute < 0 || args.startMinute > 1800)) {
+    throw new Error("invalid_time");
+  }
+  return withSession(db, claims, async (tx) => {
+    const [idea] = await tx
+      .select({ id: ideas.id, hiddenFrom: ideas.hiddenFrom })
+      .from(ideas)
+      .where(and(eq(ideas.id, args.ideaId), eq(ideas.tripId, args.tripId)));
+    if (!idea) throw new Error("not_found");
+    await tx.delete(planItems).where(and(eq(planItems.stopId, args.stopId), eq(planItems.ideaId, args.ideaId)));
+    await tx.insert(planItems).values({
+      tripId: args.tripId,
+      stopId: args.stopId,
+      ideaId: args.ideaId,
+      dayIndex: args.dayIndex,
+      startMinute: args.startMinute,
+      locked: true,
+      reason: "Added by hand",
+      hiddenFrom: idea.hiddenFrom,
+    });
+  });
+}
+
 /** FR-O4: lock/unlock or move an item to another day. */
 export async function updatePlanItem(
   db: Db,

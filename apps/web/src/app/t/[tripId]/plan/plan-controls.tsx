@@ -5,7 +5,7 @@ import { useTransition } from "react";
 import { Lock, LockOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import { applyPlanAction, updatePlanItemAction } from "./actions";
+import { addToPlanAction, applyPlanAction, updatePlanItemAction } from "./actions";
 
 export function ApplyPlan({ tripId, stopId, backHref }: { tripId: string; stopId: string | null; backHref: string }) {
   const [pending, start] = useTransition();
@@ -87,5 +87,56 @@ export function ItemControls({
         {locked ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
       </button>
     </div>
+  );
+}
+
+/** D70: build the plan by hand. Pick a day and, optionally, a time. */
+export function AddToPlan({
+  tripId,
+  stopId,
+  ideaId,
+  dayLabels,
+}: {
+  tripId: string;
+  stopId: string;
+  ideaId: string;
+  dayLabels: string[];
+}) {
+  const [pending, start] = useTransition();
+  const { toast } = useToast();
+  const router = useRouter();
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        start(async () => {
+          const r = await addToPlanAction(tripId, stopId, ideaId, Number(fd.get("day")), String(fd.get("time") || "") || null);
+          if (!r.ok) {
+            if (r.signin) router.push(r.signin);
+            else toast({ title: r.error, variant: "error" });
+          }
+        });
+      }}
+    >
+      <label className="sr-only" htmlFor={`add-day-${ideaId}`}>
+        Day
+      </label>
+      <select id={`add-day-${ideaId}`} name="day" className="rounded-md border border-input bg-card px-2 py-1 text-xs">
+        {dayLabels.map((l, i) => (
+          <option key={i} value={i}>
+            {l}
+          </option>
+        ))}
+      </select>
+      <label className="sr-only" htmlFor={`add-time-${ideaId}`}>
+        Time (optional)
+      </label>
+      <input id={`add-time-${ideaId}`} name="time" type="time" className="rounded-md border border-input bg-card px-2 py-1 text-xs" />
+      <Button type="submit" size="sm" variant="outline" loading={pending}>
+        Add
+      </Button>
+    </form>
   );
 }

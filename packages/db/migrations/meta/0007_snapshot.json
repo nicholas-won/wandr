@@ -1,6 +1,6 @@
 {
-  "id": "83017a68-1967-4dec-a2f1-9063633b5826",
-  "prevId": "8858f148-e48b-436f-882d-25ae7d5f1b50",
+  "id": "541e9711-14c3-4ad8-85b2-ced411cbaddb",
+  "prevId": "83017a68-1967-4dec-a2f1-9063633b5826",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2226,6 +2226,12 @@
         "bound_device_hash": {
           "name": "bound_device_hash",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name_confirmed_at": {
+          "name": "name_confirmed_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -4729,6 +4735,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",

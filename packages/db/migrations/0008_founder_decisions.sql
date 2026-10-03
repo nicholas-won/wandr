@@ -1,4 +1,4 @@
--- 0007_founder_decisions.sql (idempotent)
+-- 0008_founder_decisions.sql (idempotent)
 --   Q1/Q37  member_links.name_confirmed_at: the person confirmed their name / accepted the invite
 --   JR3     trips.deleted_at: owner soft-deletes a trip; RLS hides it everywhere (NFR-5/NFR-7 keep money rows)
 --   JR11    organizers act for managed members whose manager left or was removed

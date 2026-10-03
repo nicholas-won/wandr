@@ -7,7 +7,7 @@ import {
   stopByName,
   stopsFingerprint,
 } from "../src/resolve";
-import { mapRawPlace, type PlacesClient } from "../src/places";
+import { mapRawPlace, type PlaceSearch } from "../src/places";
 import type { Fetcher, SafeResponse } from "../src/safe-fetch";
 import type { ExtractionWire } from "../src/extract";
 import { mockModel } from "./helpers";
@@ -32,7 +32,7 @@ function oembedFetcher(caption: string): Fetcher & { count: () => number } {
   return f;
 }
 
-function places(results: Record<string, Array<Parameters<typeof mapRawPlace>[0]>>): PlacesClient & { calls: unknown[] } {
+function places(results: Record<string, Array<Parameters<typeof mapRawPlace>[0]>>): PlaceSearch & { calls: unknown[] } {
   const calls: unknown[] = [];
   return {
     calls,
@@ -231,7 +231,7 @@ describe("resolveIdea", () => {
   });
 
   it("Places errors degrade gracefully", async () => {
-    const broken: PlacesClient = { searchText: vi.fn(async () => Promise.reject(new Error("quota"))) };
+    const broken: PlaceSearch = { searchText: vi.fn(async () => Promise.reject(new Error("quota"))) };
     const r = await resolveIdea({ raw: URL1 }, lisbon, {
       fetcher: oembedFetcher("Cervejaria Ramiro"),
       model: mockModel(wire("Cervejaria Ramiro", 0.9)),
