@@ -56,7 +56,7 @@ export async function signInStep(prev: SignInState, formData: FormData): Promise
       return { step: "contact", channel: prev.channel, error: MESSAGES[r.error], lastInput: prev.lastInput, next };
     }
     if (r.needsName) return { step: "name", channel: prev.channel, next };
-    redirect(next);
+    redirect(r.needsRecheck ? routes.recheck(next) : next); // FR-16 / J-4
   }
 
   if (intent === "name") {

@@ -12,7 +12,8 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { and, eq, inArray, isNull, ne } from "drizzle-orm";
-import { asService, getDb, memberLinks, members, type Claims } from "@wandr/db";
+import { asService, getDb, memberLinks, members, users, type Claims } from "@wandr/db";
+import { routes } from "@/lib/routes";
 import { COOKIE, cookieOptions } from "./cookies";
 import {
   mergeGrant,
@@ -46,13 +47,33 @@ export const getSession = cache(async (): Promise<Session> => {
   const full = await verifyPayload(jar.get(COOKIE.session)?.value, "full");
   const linkCookie = await verifyPayload(jar.get(COOKIE.links)?.value, "links");
   const links = linkCookie ? await liveGrants(linkCookie.grants) : [];
+  const account = full ? await accountState(full.userId) : null;
   return {
-    user: full
-      ? { userId: full.userId, needsRecheck: !!full.needsRecheck, provisional: !!full.provisional }
-      : null,
+    user:
+      full && account
+        ? { userId: full.userId, needsRecheck: account.recheckPending, provisional: !!full.provisional }
+        : null,
     links,
   };
 });
+
+/**
+ * The database decides, not the cookie: a deleted account (NFR-7) signs out every device, and a
+ * pending recycled-number check (FR-16, J-4) applies until an email code or an organizer clears
+ * it, on every device. Null = no usable account.
+ */
+async function accountState(userId: string): Promise<{ recheckPending: boolean } | null> {
+  const db = await getDb();
+  const [u] = await asService(db, (tx) =>
+    tx
+      .select({ deletedAt: users.deletedAt, recheckPendingAt: users.recheckPendingAt })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1),
+  );
+  if (!u || u.deletedAt) return null;
+  return { recheckPending: !!u.recheckPendingAt };
+}
 
 /** Drop grants whose link was revoked (WRONG, J-4) or whose member was removed (M-12). */
 async function liveGrants(grants: LinkGrant[]): Promise<LinkGrant[]> {
@@ -116,7 +137,9 @@ export async function requireFullOrRedirect(
   try {
     return await requireFull(opts);
   } catch (e) {
-    if (e instanceof AuthError) redirect(`/signin?next=${encodeURIComponent(next)}`);
+    if (e instanceof AuthError) {
+      redirect(e.code === "recheck_required" ? routes.recheck(next) : routes.signin(next));
+    }
     throw e;
   }
 }

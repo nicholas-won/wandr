@@ -24,7 +24,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
       tx.select({ name: users.displayName }).from(users).where(eq(users.id, session.user!.userId)).limit(1),
     );
     needsName = !!me && me.name.trim() === "";
-    if (me && !needsName && !session.user.needsRecheck) redirect(next);
+    if (me && !needsName) redirect(session.user.needsRecheck ? routes.recheck(next) : next);
   }
 
   const pending = needsName ? null : await pendingChallenge();

@@ -26,7 +26,7 @@ import {
 import { getSession, requireFull, setFullSession } from "./session";
 import { adoptProvisionalUser, PROVISIONAL_NAME } from "./provisional";
 import { attachVerifiedIdentity } from "@/server/membership";
-import { OTP_TTL_SECONDS, signPayload, verifyPayload } from "./tokens";
+import { OTP_TTL_SECONDS, signPayload, verifyPayload, type OtpChallengePayload, type Verified } from "./tokens";
 import { VERIFY_COST_MICROS } from "@/lib/messaging/cost";
 import { wrongNumberReportedSince } from "@/lib/messaging/opt-out";
 import { dailySpendCapMicros, smsSpendTodayMicros } from "@/lib/messaging/spend";
@@ -83,6 +83,39 @@ async function countRequests(tx: Tx, destination: string, ip: string | null, tri
   };
 }
 
+/** FR-15 limits, CAPTCHA and the SMS spend cap; records the request. Null = go ahead. */
+async function gateRequest(req: {
+  channel: OtpChannel;
+  destination: string;
+  ip: string | null;
+  tripId?: string;
+  captchaToken?: string | null;
+  /** Signed-in flows (add email, recheck) skip the CAPTCHA but keep every limit. */
+  skipCaptcha?: boolean;
+}): Promise<{ error: "limited" | "captcha" | "unavailable" } | null> {
+  const db = await getDb();
+  return asService(db, async (tx) => {
+    const counts = await countRequests(tx, req.destination, req.ip, req.tripId);
+    const decision = decideOtpRequest(counts);
+    if (decision.kind === "limited") return { error: "limited" as const };
+    if (decision.captcha && !req.skipCaptcha) {
+      const captcha = getCaptcha();
+      if (captcha.enabled && !(await captcha.verify(req.captchaToken, req.ip))) {
+        return { error: "captcha" as const };
+      }
+    }
+    if (req.channel === "sms") {
+      const spent = await smsSpendTodayMicros(tx);
+      if (spent + VERIFY_COST_MICROS > dailySpendCapMicros()) {
+        console.error("[auth] daily SMS spend cap reached; refusing code send");
+        return { error: "unavailable" as const };
+      }
+    }
+    await tx.insert(otpRequests).values({ destination: req.destination, ip: req.ip, tripId: req.tripId ?? null });
+    return null;
+  });
+}
+
 export async function requestCode(req: RequestCodeInput): Promise<RequestCodeResult> {
   let destination: string;
   let display: string;
@@ -99,27 +132,7 @@ export async function requestCode(req: RequestCodeInput): Promise<RequestCodeRes
     display = e;
   }
 
-  const db = await getDb();
-  const gate = await asService(db, async (tx) => {
-    const counts = await countRequests(tx, destination, req.ip, req.tripId);
-    const decision = decideOtpRequest(counts);
-    if (decision.kind === "limited") return { error: "limited" as const };
-    if (decision.captcha) {
-      const captcha = getCaptcha();
-      if (captcha.enabled && !(await captcha.verify(req.captchaToken, req.ip))) {
-        return { error: "captcha" as const };
-      }
-    }
-    if (req.channel === "sms") {
-      const spent = await smsSpendTodayMicros(tx);
-      if (spent + VERIFY_COST_MICROS > dailySpendCapMicros()) {
-        console.error("[auth] daily SMS spend cap reached; refusing code send");
-        return { error: "unavailable" as const };
-      }
-    }
-    await tx.insert(otpRequests).values({ destination, ip: req.ip, tripId: req.tripId ?? null });
-    return null;
-  });
+  const gate = await gateRequest({ channel: req.channel, destination, ip: req.ip, tripId: req.tripId, captchaToken: req.captchaToken });
   if (gate) {
     return gate.error === "captcha"
       ? { ok: false, error: "captcha", captchaRequired: true }
@@ -154,10 +167,18 @@ export type VerifyCodeResult =
 
 const FAILED_ACTION = "auth.otp_failed";
 
-export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
+type ChallengeCheck =
+  | { ok: true; ch: Verified<OtpChallengePayload> }
+  | { ok: false; error: "expired" | "wrong" | "locked"; attemptsLeft?: number };
+
+/**
+ * Check a code against the pending challenge (J-17: max 5 wrong codes per challenge). The
+ * challenge's `purpose` must match, so an "add email" code can't sign anyone in and vice versa.
+ */
+async function checkChallenge(rawCode: string, purpose: OtpChallengePayload["purpose"], userId?: string): Promise<ChallengeCheck> {
   const jar = await cookies();
   const ch = await verifyPayload(jar.get(COOKIE.otp)?.value, "otp");
-  if (!ch) return { ok: false, error: "expired" };
+  if (!ch || ch.purpose !== purpose || (purpose && ch.userId !== userId)) return { ok: false, error: "expired" };
 
   const code = rawCode.replace(/\D/g, "");
   const destKey = keyedHash(`dest:${ch.destination}`); // never store the raw number in audit rows
@@ -201,6 +222,15 @@ export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
     }
     return { ok: false, error: "wrong", attemptsLeft };
   }
+  jar.delete(COOKIE.otp);
+  return { ok: true, ch };
+}
+
+export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
+  const checked = await checkChallenge(rawCode, undefined);
+  if (!checked.ok) return checked;
+  const { ch } = checked;
+  const db = await getDb();
 
   const now = new Date();
   const provisional = (await getSession()).user;
@@ -229,8 +259,17 @@ export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
         ch.channel === "sms" &&
         (needsRecycledNumberCheck(existing.lastSignInAt, false, now) ||
           (await wrongNumberReportedSince(tx, ch.destination, existing.lastSignInAt)));
-      await tx.update(users).set({ lastSignInAt: now }).where(eq(users.id, existing.id));
-      return { user: existing, isNewUser: false, recheck };
+      // The flag lives in the DB (not just this cookie) so signing in again can't skip it (FR-16).
+      // A code to the account's verified email is the second factor, so it clears it (J-4).
+      const pending = ch.channel === "email" ? false : recheck || !!existing.recheckPendingAt;
+      await tx
+        .update(users)
+        .set({
+          lastSignInAt: now,
+          recheckPendingAt: pending ? (existing.recheckPendingAt ?? now) : null,
+        })
+        .where(eq(users.id, existing.id));
+      return { user: existing, isNewUser: false, recheck: pending };
     }
     const [created] = await tx
       .insert(users)
@@ -246,7 +285,6 @@ export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
   // FR-5: a personal-link guest who verifies keeps their memberships (not for a recycled-number recheck, J-4).
   if (!result.recheck) await asService(db, (tx) => attachVerifiedIdentity(tx, result.user.id));
   await setFullSession({ userId: result.user.id, needsRecheck: result.recheck });
-  jar.delete(COOKIE.otp);
   return {
     ok: true,
     isNewUser: result.isNewUser,
@@ -258,7 +296,7 @@ export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
 /** The pending challenge, for the code screen ("We texted •••• 0100"). */
 export async function pendingChallenge(): Promise<{ channel: OtpChannel; display: string } | null> {
   const ch = await verifyPayload((await cookies()).get(COOKIE.otp)?.value, "otp");
-  if (!ch) return null;
+  if (!ch || ch.purpose) return null; // account-page codes have their own screens
   return {
     channel: ch.channel,
     display: ch.channel === "sms" ? maskPhone(ch.destination) : ch.destination,
@@ -285,4 +323,120 @@ export async function setDisplayName(input: string): Promise<{ ok: boolean }> {
       .where(and(eq(members.userId, user.userId), eq(members.displayName, PROVISIONAL_NAME)));
   });
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Signed-in email codes: add an email (J-6) and the recycled-number recheck (FR-16, J-4)
+// ---------------------------------------------------------------------------
+
+export type AccountCodePurpose = "add_email" | "recheck";
+
+export type AccountCodeResult =
+  | { ok: true; display: string }
+  | { ok: false; error: "invalid" | "no_email" | "limited" | "unavailable" | "not_allowed" };
+
+/**
+ * Email a code to the signed-in person. `add_email`: to the address they typed (not allowed
+ * while a recheck is pending, or a recycled number could add its own email). `recheck`: to the
+ * email already on the account, never one typed now.
+ */
+export async function requestAccountEmailCode(
+  purpose: AccountCodePurpose,
+  input: string | null,
+  ip: string | null,
+): Promise<AccountCodeResult> {
+  const user = await requireFull({ allowRecheck: purpose === "recheck" });
+  if (purpose === "add_email" && user.needsRecheck) return { ok: false, error: "not_allowed" };
+  let destination: string;
+  if (purpose === "recheck") {
+    const db = await getDb();
+    const [u] = await asService(db, (tx) => tx.select({ email: users.email }).from(users).where(eq(users.id, user.userId)));
+    if (!u?.email) return { ok: false, error: "no_email" };
+    destination = u.email;
+  } else {
+    const e = normalizeEmail(input ?? "");
+    if (!e) return { ok: false, error: "invalid" };
+    destination = e;
+  }
+  const gate = await gateRequest({ channel: "email", destination, ip, skipCaptcha: true });
+  if (gate) return { ok: false, error: gate.error === "captcha" ? "limited" : gate.error };
+  let started;
+  try {
+    started = await getOtpProvider("email").start({ channel: "email", destination });
+  } catch (err) {
+    console.error("[auth] email code send failed", err);
+    return { ok: false, error: "unavailable" };
+  }
+  const challenge = await signPayload(
+    {
+      k: "otp",
+      channel: "email",
+      destination,
+      issuedAt: Date.now(),
+      purpose,
+      userId: user.userId,
+      ...(started.codeHash ? { codeHash: started.codeHash } : {}),
+    },
+    OTP_TTL_SECONDS,
+  );
+  (await cookies()).set(COOKIE.otp, challenge, cookieOptions(OTP_TTL_SECONDS));
+  return { ok: true, display: maskEmail(destination) };
+}
+
+/** "s•••@example.com": enough to recognize, not enough to harvest. */
+export function maskEmail(email: string): string {
+  const [local = "", domain = ""] = email.split("@");
+  return `${local.slice(0, 1)}•••@${domain}`;
+}
+
+export type AccountVerifyResult =
+  | { ok: true }
+  | { ok: false; error: "expired" | "wrong" | "locked" | "taken"; attemptsLeft?: number };
+
+/**
+ * Check a signed-in email code. `add_email` saves the address (J-6); an address that already
+ * belongs to another account is refused (said only after they proved they own it, J-17).
+ * `recheck` clears the pending recycled-number check (FR-16) and links their memberships (FR-5).
+ */
+export async function verifyAccountEmailCode(purpose: AccountCodePurpose, rawCode: string): Promise<AccountVerifyResult> {
+  const user = await requireFull({ allowRecheck: purpose === "recheck" });
+  const checked = await checkChallenge(rawCode, purpose, user.userId);
+  if (!checked.ok) return checked;
+  const db = await getDb();
+  if (purpose === "recheck") {
+    await asService(db, (tx) => clearRecheck(tx, user.userId, "email"));
+    await setFullSession({ userId: user.userId, needsRecheck: false, provisional: user.provisional });
+    return { ok: true };
+  }
+  const email = checked.ch.destination;
+  const taken = await asService(db, async (tx) => {
+    const [other] = await tx.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+    if (other && other.id !== user.userId) return true;
+    await tx.update(users).set({ email }).where(eq(users.id, user.userId));
+    await tx.insert(auditLog).values({ action: "user.email_verified", entity: "user", entityId: user.userId });
+    await attachVerifiedIdentity(tx, user.userId);
+    return false;
+  });
+  return taken ? { ok: false, error: "taken" } : { ok: true };
+}
+
+/** FR-16 / J-4: the person is confirmed (email code or an organizer); link their memberships (FR-5). */
+export async function clearRecheck(tx: Tx, userId: string, via: "email" | "organizer", actorMemberId?: string, tripId?: string) {
+  await tx.update(users).set({ recheckPendingAt: null }).where(eq(users.id, userId));
+  await tx.insert(auditLog).values({
+    action: "user.recheck_cleared",
+    entity: "user",
+    entityId: userId,
+    tripId: tripId ?? null,
+    actorMemberId: actorMemberId ?? null,
+    data: { via },
+  });
+  await attachVerifiedIdentity(tx, userId);
+}
+
+/** The pending account-page code, for re-rendering its screen. */
+export async function pendingAccountChallenge(purpose: AccountCodePurpose): Promise<{ display: string } | null> {
+  const ch = await verifyPayload((await cookies()).get(COOKIE.otp)?.value, "otp");
+  if (!ch || ch.purpose !== purpose) return null;
+  return { display: maskEmail(ch.destination) };
 }
