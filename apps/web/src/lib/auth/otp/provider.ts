@@ -114,3 +114,15 @@ export function getOtpProvider(channel: OtpChannel): OtpProvider {
   if (e.NODE_ENV === "production") throw new Error("Twilio Verify is not configured");
   return withDevBypass(devConsoleProvider);
 }
+
+/**
+ * D74 test mode: outside production, when codes aren't really delivered (no Twilio Verify for
+ * texts, no Resend for email), the code goes to the server console and 000000 works. The sign-in
+ * screens say so.
+ */
+export function codeTestMode(channel: OtpChannel): boolean {
+  const e = env();
+  if (e.NODE_ENV === "production") return false;
+  if (channel === "sms") return !(e.TWILIO_ACCOUNT_SID && e.TWILIO_AUTH_TOKEN && e.TWILIO_VERIFY_SERVICE_SID);
+  return !e.RESEND_API_KEY;
+}

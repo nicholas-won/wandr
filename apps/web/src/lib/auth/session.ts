@@ -9,10 +9,11 @@
  * applies. Money, approvals and settings must call `requireFull()` first (FR-5).
  */
 import { cache } from "react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { asService, getDb, memberLinks, members, type Claims } from "@wandr/db";
+import { bearerUser } from "./bearer";
 import { COOKIE, cookieOptions } from "./cookies";
 import {
   mergeGrant,
@@ -43,6 +44,9 @@ export class AuthError extends Error {
 /** Read the session for this request. Memoized per request. */
 export const getSession = cache(async (): Promise<Session> => {
   const jar = await cookies();
+  // Native app requests (D75) carry a bearer token instead of cookies; same claims either way.
+  const bearer = await bearerUser(await headers());
+  if (bearer) return { user: { userId: bearer.userId, needsRecheck: bearer.needsRecheck }, links: [] };
   const full = await verifyPayload(jar.get(COOKIE.session)?.value, "full");
   const linkCookie = await verifyPayload(jar.get(COOKIE.links)?.value, "links");
   const links = linkCookie ? await liveGrants(linkCookie.grants) : [];
