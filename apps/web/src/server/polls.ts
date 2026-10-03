@@ -26,6 +26,7 @@ import {
   extendDeadline,
   isSplitDecision,
   pollOutcome,
+  tripClock,
   tripSize,
   type PollOutcome,
   type StageKind,
@@ -160,6 +161,8 @@ export interface PollView {
   stage: StageKind | null;
   stopId: string | null;
   stopName: string | null;
+  /** FR-O16: the poll's Stop (else the trip's first) clock, for "(2 AM in Lisbon)" next to deadlines. */
+  cityClock: { name: string; timeZone: string } | null;
   status: PollStatus;
   closesAt: string | null;
   myOptionId: string | null;
@@ -191,6 +194,7 @@ function buildView(args: {
   myOptionId: string | null;
   eligibleIds: string[];
   stopName: string | null;
+  cityClock: { name: string; timeZone: string } | null;
   closedByName: string | null;
   runoffPollId: string | null;
   now: Date;
@@ -213,6 +217,7 @@ function buildView(args: {
     stage: p.stage,
     stopId: p.stopId,
     stopName: args.stopName,
+    cityClock: args.cityClock,
     status,
     closesAt: p.closesAt?.toISOString() ?? null,
     myOptionId: args.myOptionId,
@@ -249,7 +254,10 @@ async function viewsFor(tx: Tx, claims: Claims, tripId: string, rows: PollRow[],
   const active = await activeMembers(tx, tripId);
   const size = tripSize(active.length);
   const names = new Map(active.map((m) => [m.memberId, m.displayName]));
-  const stopRows = await tx.select({ id: stops.id, name: stops.name }).from(stops).where(eq(stops.tripId, tripId));
+  const stopRows = await tx
+    .select({ id: stops.id, name: stops.name, position: stops.position, timezone: stops.timezone })
+    .from(stops)
+    .where(eq(stops.tripId, tripId));
   const ids = rows.map((r) => r.id);
   const optionRows = ids.length
     ? await tx
@@ -284,6 +292,7 @@ async function viewsFor(tx: Tx, claims: Claims, tripId: string, rows: PollRow[],
       myOptionId: mine.find((m) => m.pollId === p.id)?.optionId ?? null,
       eligibleIds: await eligibleFor(tx, p),
       stopName: stopRows.length > 1 ? (stopRows.find((s) => s.id === p.stopId)?.name ?? null) : null,
+      cityClock: tripClock(stopRows, p.stopId),
       closedByName: p.closedByMemberId ? (names.get(p.closedByMemberId) ?? "an organizer") : null,
       runoffPollId: runoffs.find((r) => r.of === p.id)?.id ?? null,
       now,

@@ -9,6 +9,7 @@ import { TripNav } from "@/components/trip/trip-nav";
 import { StageChips } from "@/components/trip/stage-chips";
 import { routes } from "@/lib/routes";
 import { loadTripView, phonePromptVisible, tripContext } from "@/server/context";
+import { queueStopGeocode } from "@/server/geocode";
 
 /**
  * Responsive trip shell.
@@ -19,6 +20,8 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
   const { tripId } = await params;
   const view = await loadTripView(tripId);
   if (!view) notFound();
+  // Lazy backfill (FR-S6 / FR-O16): Stops without coordinates are geocoded in the background.
+  if (view.stopsNeedGeocode) await queueStopGeocode(tripId);
   const base = routes.trip(tripId);
   // Q1: personal-link guests get a gentle "confirm your number" nudge after a few votes.
   const { claims } = await tripContext(tripId);

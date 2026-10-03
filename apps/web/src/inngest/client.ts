@@ -11,4 +11,5 @@ export const EVENTS = {
   ideaAdded: "wandr/idea.added",
   savedIdeaAdded: "wandr/saved-idea.added",
   expenseChanged: "wandr/expense.changed",
+  stopsGeocode: "wandr/stops.geocode",
 } as const;

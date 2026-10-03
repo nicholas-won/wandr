@@ -11,6 +11,10 @@ export {
   KIND_WINDOWS,
   LATE_ARRIVAL_START,
   formatMinute,
+  buildDayFrames,
+  arrivalStart,
+  departureEnd,
+  type DayFrame,
   weekdayOf,
   type PaceRules,
 } from "./rules";

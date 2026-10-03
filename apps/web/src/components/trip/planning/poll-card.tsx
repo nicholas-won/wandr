@@ -72,7 +72,7 @@ export function PollCard({ tripId, poll, detail = false }: { tripId: string; pol
           )}
           <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
             <span>{STATUS[poll.status]}</span>
-            {open && poll.closesAt ? <ClosesLabel at={poll.closesAt} /> : null}
+            {open && poll.closesAt ? <ClosesLabel at={poll.closesAt} city={poll.cityClock} /> : null}
             {poll.stopName ? <span>· {poll.stopName}</span> : null}
             {poll.stage ? <span>· {STAGE_LABELS[poll.stage]}</span> : null}
             {poll.turnout ? (

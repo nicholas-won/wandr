@@ -109,6 +109,7 @@ export default async function StopsPage({ params }: PageProps<"/t/[tripId]/stops
               stages={v.stages.filter((s) => s.kind !== "getting_around" || v.stops.length > 1)}
               solo={solo}
               isOrganizer={v.me.isOrganizer}
+              city={v.tripClock}
             />
           </CardContent>
         </Card>

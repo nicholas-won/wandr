@@ -44,6 +44,7 @@ import {
   updateSaveSort,
 } from "@/server/library";
 import { boardContext } from "@/server/library-context";
+import { queueStopGeocode } from "@/server/geocode";
 import { IdeaInputError } from "@/server/ideas";
 import { PlacePickError, type PlaceSearchOutcome } from "@/server/place-search";
 
@@ -207,6 +208,7 @@ export async function startTripFromSavesAction(input: {
     });
     for (const ideaId of r.resolveIdeaIds) await enqueue({ name: EVENTS.ideaAdded, data: { ideaId } });
     tripId = r.tripId;
+    if (input.city?.trim()) await queueStopGeocode(r.tripId, { force: true }); // FR-S6 / FR-O16
     after(() => track(db, { name: "trip_created", tripId: r.tripId, memberId: r.memberId, props: { via: "library", ideas: r.sent } }));
     if (input.boardId) {
       const boardId = uuid.parse(input.boardId);

@@ -33,6 +33,7 @@ import {
   STAGE_ORDER,
   stageChips,
   transitionStage,
+  tripClock,
   tripSize,
   type IdeaStatus,
   type MemberRole,
@@ -175,6 +176,8 @@ export interface PlanningView {
   /** FR-S5: proposed cities (Where stage). */
   cityIdeas: { id: string; title: string; status: string; lat: number | null; lng: number | null }[];
   dateWarnings: { stopId: string; kind: "overlap" | "gap"; days: number }[];
+  /** FR-O16: the current/next Stop's clock, shown next to deadlines when it differs from the viewer's. */
+  tripClock: { name: string; timeZone: string } | null;
 }
 
 export async function getPlanningView(
@@ -289,6 +292,7 @@ export async function getPlanningView(
         .filter((i) => i.category === "city" && i.status !== "dropped")
         .map((i) => ({ id: i.id, title: i.title, status: i.status, lat: i.lat, lng: i.lng })),
       dateWarnings: stopDateWarnings(stopRows),
+      tripClock: tripClock(stopRows, showStops ? currentOrNextStopId(stopRows, today(now)) : null),
     };
   });
 }
@@ -971,6 +975,8 @@ export interface MapGroup {
   ideas: MapIdea[];
   /** One Google Maps route per ≤11 pinned places (FR-126). */
   routeUrls: string[];
+  /** The Stop's geocoded coordinates (FR-S9): where its map opens before any place is located. */
+  center: { lat: number; lng: number } | null;
 }
 
 const STATUS_ORDER: Record<string, number> = { planned: 0, shortlisted: 1, idea: 2, done: 3 };
@@ -996,8 +1002,15 @@ export async function getMapView(db: Db, claims: Claims, tripId: string): Promis
       .where(eq(ideas.tripId, tripId))
       .orderBy(asc(ideas.createdAt));
     const visible = rows.filter((r) => r.status !== "dropped" && r.category !== "city");
-    const groups: MapGroup[] = [...stopRows.map((s) => ({ id: s.id as string | null, name: s.name || "This trip" })), { id: null, name: "Unsorted" }]
-      .map(({ id, name }) => {
+    const groups: MapGroup[] = [
+      ...stopRows.map((s) => ({
+        id: s.id as string | null,
+        name: s.name || "This trip",
+        center: s.lat != null && s.lng != null ? { lat: s.lat, lng: s.lng } : null,
+      })),
+      { id: null, name: "Unsorted", center: null },
+    ]
+      .map(({ id, name, center }) => {
         const list = visible
           .filter((r) => r.stopId === id)
           .sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
@@ -1010,7 +1023,7 @@ export async function getMapView(db: Db, claims: Claims, tripId: string): Promis
           lng: r.lng,
           mapsUrl: googleMapsPlaceUrl(r),
         }));
-        return { stopId: id, name, ideas: mapped, routeUrls: googleMapsRouteUrls(list) };
+        return { stopId: id, name, ideas: mapped, routeUrls: googleMapsRouteUrls(list), center };
       })
       .filter((g) => g.ideas.length > 0 || g.stopId !== null);
     return groups;
