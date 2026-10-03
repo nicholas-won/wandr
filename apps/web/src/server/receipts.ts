@@ -1,5 +1,5 @@
 /**
- * Receipt capture and reading (FR-60, FR-61, FR-64; E-4–E-11, E-31).
+ * Receipt capture and reading (FR-60, FR-61, FR-64; E-4–E-11; MT3 photo visibility).
  *
  * 1. The uploader's photo is sniffed, size-checked, hashed and stored privately; a
  *    `receipt_uploads` row is inserted as the caller (RLS: full scope, own row).
@@ -148,7 +148,8 @@ export async function getReceiptUpload(db: Db, claims: Claims, tripId: string, u
 
 /**
  * Receipt image for the authenticated route. RLS on receipt_uploads decides: the uploader, or
- * people on the expense (E-31). Returns a signed URL (Supabase) or the bytes (local disk).
+ * anyone who can see the expense (MT3: the whole trip, minus people a surprise expense is hidden
+ * from and, for a personal expense, everyone but its owner). Returns a signed URL or the bytes.
  */
 export async function openReceiptImage(
   db: Db,

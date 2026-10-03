@@ -16,3 +16,6 @@ export * from "./membership";
 export * from "./duplicates";
 export * from "./reports";
 export * from "./corrections";
+export * from "./payers";
+export * from "./similarity";
+export * from "./activity";

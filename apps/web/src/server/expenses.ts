@@ -11,17 +11,33 @@
  *   after a member claims an item (members may claim but not write shares under RLS) and to
  *   undo a soft delete; both check the caller's rights first.
  * - Locked expenses (a payment was recorded, FR-69) are never rewritten: fixes become
- *   adjustment entries. Payments and adjustments are append-only (NFR-5).
+ *   adjustment entries (plus a corrected-state snapshot for reports, Q21). Payments,
+ *   adjustments and corrections are append-only (NFR-5).
+ *
+ * Founder money decisions of 2026-10-02 (docs/open-questions.md):
+ * - Q16 unclaimed itemized items sit on the UPLOADER until claimed; flagged for organizers.
+ * - Q17 a receipt whose lines don't add up is flagged "couldn't read this receipt correctly";
+ *   the items can be re-entered (MT6) and any remaining gap is covered by the payer(s).
+ * - Q18 leftover pennies go to the uploader (then the payer); the expense shows a rounding flag.
+ * - Q19 a guest of honor's items: "only the people who shared it" by default; "even" and
+ *   "in proportion" are the alternatives, chosen by the uploader or an organizer.
+ * - Q23 several payers, "covered by", and personal-only expenses.
+ * - Q24 line-item duplicates are flagged for organizers (keep both / delete one).
+ * - MT1 an in-app "What changed" list on the money page.
  */
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   asService,
+  auditLog,
   budgetAnswers,
   expenseAdjustments,
+  expenseCorrections,
+  expenseDuplicateReviews,
   expenseItemClaims,
   expenseItems,
   expenseMemberDecisions,
+  expensePayers,
   expenses,
   expenseShares,
   ideas,
@@ -70,9 +86,22 @@ export interface ExpenseSplitConfig {
   participants?: string[];
   /** Itemized receipts: tax / tip / service charge / fees / discounts (E-4, E-5). */
   charges?: money.ReceiptCharge[];
-  /** Itemized receipts whose lines don't add up: how the gap is handled (E-6). */
+  /**
+   * Itemized receipts whose lines don't add up: how the gap is handled (E-6). Null/absent = the
+   * payer covers it (Q17; several payers in proportion to what they paid).
+   */
   difference?: money.DifferencePolicy | null;
+  /** Q23b: "covered by" entries (one person pays another person's share). */
+  coveredBy?: money.Cover[];
+  /** Q19: what happens to a guest of honor's items on an itemized receipt. Default "sharers". */
+  gohPolicy?: money.GuestOfHonorItemPolicy;
 }
+
+export const GOH_POLICY_LABEL: Record<money.GuestOfHonorItemPolicy, string> = {
+  sharers: "Only the people who shared it with them",
+  even: "Split evenly among everyone else",
+  proportional: "In proportion to what everyone else had",
+};
 
 export type ExpenseErrorCode =
   | "signin"
@@ -187,7 +216,8 @@ function actsFor(ctx: Ctx, memberId: string): boolean {
   return !!m && m.managedByMemberId === ctx.me.id;
 }
 
-const rotation = (seed: string) => money.rotationFromSeed(seed, 1_000_003);
+/** Q18: leftover pennies go to the uploader, then the payer. */
+const pennyTo = (e: Pick<ExpenseRow, "uploadedByMemberId" | "paidByMemberId">) => [e.uploadedByMemberId, e.paidByMemberId];
 
 // ---------------------------------------------------------------------------
 // Defaults (FR-62, FR-S7, D19)
@@ -227,7 +257,12 @@ interface SplitInput {
   method: SplitMethod;
   currency: string;
   totalMinor: number;
+  /** Main payer (`paid_by_member_id`). */
   payerId: string;
+  /** Q23a: part-payers when several people paid; null/empty = `payerId` paid it all. */
+  payers?: money.PayerPart[] | null;
+  /** Q16 / Q18: the person who added the expense. */
+  uploaderId: string;
   config: ExpenseSplitConfig;
   items: ItemInput[];
   guestOfHonorIds: string[];
@@ -235,38 +270,59 @@ interface SplitInput {
 
 interface ComputedSplit {
   shares: money.Share[];
-  /** Itemized: items nobody has claimed or absorbed yet (E-1 "pending claims"). */
+  /** Itemized: items nobody has claimed or absorbed yet; they sit on the uploader (Q16). */
   pendingItemIds: string[];
   excludedGuestOfHonorIds: string[];
+  /** Q18: leftover pennies and who took them. */
+  rounding: money.Rounding;
+  /** Q17: receipt lines minus total gap (0 when it adds up) the payer(s) cover. */
+  gapMinor: number;
+  /** Q19: items only a guest of honor claimed ("sharers" fell back to "even"). */
+  gohFallbackItemIds: string[];
+  /** Q23b: shares that moved to a coverer. */
+  moved: money.CoveredSplit["moved"];
+}
+
+/** Q17: the payer covers a gap; several payers cover it in proportion to what each paid. */
+function payerCoversGap(payerId: string, payers: money.PayerPart[] | null | undefined): money.DifferencePolicy {
+  if (payers && payers.length > 0) {
+    return { proportionalTo: payers.map((p) => ({ memberId: p.memberId, weight: Math.abs(p.paidMinor) })) };
+  }
+  return { assignTo: payerId };
 }
 
 /**
- * FR-62 / FR-90 / FR-T10. Itemized receipts count unclaimed items at the even default among
- * the selected people until someone claims them or the uploader assigns/absorbs them (E-1);
- * the expense shows "pending claims" meanwhile.
+ * FR-62 / FR-90 / FR-T10 plus the 2026-10-02 decisions: unclaimed items sit on the uploader
+ * until claimed (Q16); a gap is covered by the payer unless an older stored policy says
+ * otherwise (Q17); leftover pennies go to the uploader, then the payer (Q18); guest-of-honor
+ * items follow the expense's policy (Q19); covered shares move to their coverer last (Q23b).
  */
 export function computeSplit(input: SplitInput): ComputedSplit {
-  const tieBreakStart = rotation(input.id);
+  const leftoverTo = [input.uploaderId, input.payerId];
+  const base = { pendingItemIds: [] as string[], excludedGuestOfHonorIds: [] as string[], gapMinor: 0, gohFallbackItemIds: [] as string[] };
   if (input.method === "just_me") {
     return {
+      ...base,
       shares: money.splitJustMe({ totalMinor: input.totalMinor, currency: input.currency, memberId: input.payerId }).shares,
-      pendingItemIds: [],
-      excludedGuestOfHonorIds: [],
+      rounding: { leftoverMinor: 0, memberId: null },
+      moved: [],
     };
   }
   const participants = input.config.participants ?? [];
+  const cover = (s: money.Split) => money.applyCoveredBy(s, input.config.coveredBy ?? []);
   if (input.method === "even") {
     const s = money.splitEven({
       totalMinor: input.totalMinor,
       currency: input.currency,
       participantIds: participants,
       guestOfHonorIds: input.guestOfHonorIds,
-      tieBreakStart,
+      leftoverTo,
     });
-    return { shares: s.shares, pendingItemIds: [], excludedGuestOfHonorIds: s.excludedGuestOfHonorIds };
+    const c = cover(s);
+    return { ...base, shares: c.shares, excludedGuestOfHonorIds: s.excludedGuestOfHonorIds, rounding: s.rounding, moved: c.moved };
   }
   const pending = input.items.filter((i) => i.claims.length === 0 && !i.absorbed && i.amountMinor !== 0).map((i) => i.id);
-  const pool = participants.length > 0 ? participants : [input.payerId];
+  const claimants = input.items.flatMap((i) => i.claims.map((c) => c.memberId));
   const s = money.splitItemized({
     totalMinor: input.totalMinor,
     currency: input.currency,
@@ -280,11 +336,62 @@ export function computeSplit(input: SplitInput): ComputedSplit {
     })),
     charges: input.config.charges ?? [],
     guestOfHonorIds: input.guestOfHonorIds,
-    unclaimed: { splitEvenlyAmong: pool },
-    difference: input.config.difference ?? "error",
-    tieBreakStart,
+    guestOfHonorPolicy: input.config.gohPolicy ?? "sharers",
+    everyoneElse: [...new Set([...participants, ...claimants])],
+    unclaimed: { assignTo: input.uploaderId },
+    difference: input.config.difference ?? payerCoversGap(input.payerId, input.payers),
+    leftoverTo,
   });
-  return { shares: s.shares, pendingItemIds: pending, excludedGuestOfHonorIds: s.excludedGuestOfHonorIds };
+  const c = cover(s);
+  return {
+    shares: c.shares,
+    pendingItemIds: pending,
+    excludedGuestOfHonorIds: s.excludedGuestOfHonorIds,
+    rounding: s.rounding,
+    gapMinor: s.validation.discrepancyMinor,
+    gohFallbackItemIds: s.gohFallbackItemIds,
+    moved: c.moved,
+  };
+}
+
+async function loadPayers(tx: Tx, expenseId: string): Promise<money.PayerPart[] | null> {
+  const rows = await tx
+    .select({ memberId: expensePayers.memberId, paidMinor: expensePayers.paidMinor })
+    .from(expensePayers)
+    .where(eq(expensePayers.expenseId, expenseId));
+  return rows.length ? rows.sort((a, b) => money.compareIds(a.memberId, b.memberId)) : null;
+}
+
+async function writePayers(tx: Tx, expenseId: string, payers: money.PayerPart[] | null): Promise<void> {
+  await tx.delete(expensePayers).where(eq(expensePayers.expenseId, expenseId));
+  if (payers && payers.length > 0) {
+    await tx.insert(expensePayers).values(payers.map((p) => ({ expenseId, memberId: p.memberId, paidMinor: p.paidMinor })));
+  }
+}
+
+/** Q23a: validates part-payers for a total. One part (or none) = a single payer. */
+function resolvePayers(
+  ctx: Ctx,
+  totalMinor: number,
+  payers: { memberId: string; paidMinor: number }[] | null | undefined,
+): { payerId: string; payers: money.PayerPart[] | null } | null {
+  if (!payers || payers.length === 0) return null;
+  const allowed = moneyMemberIds(ctx);
+  for (const p of payers) if (!allowed.has(p.memberId)) throw new ExpenseError("invalid", "A payer isn't on this trip.");
+  const parts = money.normalizePayers(totalMinor, payers);
+  if (parts.length === 1) return { payerId: parts[0]!.memberId, payers: null };
+  return { payerId: money.mainPayer(parts), payers: parts };
+}
+
+function validateCovers(ctx: Ctx, covers: money.Cover[] | null | undefined): money.Cover[] {
+  if (!covers || covers.length === 0) return [];
+  const allowed = moneyMemberIds(ctx);
+  for (const c of covers) {
+    if (!allowed.has(c.memberId) || !allowed.has(c.coveredBy)) throw new ExpenseError("invalid", "Someone selected isn't on this trip.");
+  }
+  // Same validation as the split itself (self-cover, cycles, one coverer per share).
+  money.applyCoveredBy({ currency: "USD", totalMinor: 0, shares: [] }, covers);
+  return covers.map((c) => ({ memberId: c.memberId, coveredBy: c.coveredBy }));
 }
 
 async function loadItems(tx: Tx, expenseId: string): Promise<ItemInput[]> {
@@ -325,8 +432,9 @@ async function recomputeStoredShares(tx: Tx, e: ExpenseRow, goh: string[]): Prom
     shares = money.refundFromOriginal(
       { currency: orig.currency, totalMinor: orig.totalMinor, shares: origShares },
       -e.totalMinor,
-      { tieBreakStart: rotation(e.id) },
+      { leftoverTo: [orig.uploadedByMemberId, orig.paidByMemberId] },
     ).shares;
+    await writePayers(tx, e.id, refundPayers(orig, await loadPayers(tx, orig.id), e.totalMinor));
   } else {
     shares = computeSplit({
       id: e.id,
@@ -334,6 +442,8 @@ async function recomputeStoredShares(tx: Tx, e: ExpenseRow, goh: string[]): Prom
       currency: e.currency,
       totalMinor: e.totalMinor,
       payerId: e.paidByMemberId,
+      payers: await loadPayers(tx, e.id),
+      uploaderId: e.uploadedByMemberId,
       config: configOf(e),
       items: await loadItems(tx, e.id),
       guestOfHonorIds: goh,
@@ -349,6 +459,13 @@ async function recomputeStoredShares(tx: Tx, e: ExpenseRow, goh: string[]): Prom
     .from(expenses)
     .where(and(eq(expenses.refundOfExpenseId, e.id), isNull(expenses.deletedAt), isNull(expenses.lockedAt)));
   for (const r of refunds) await recomputeStoredShares(tx, r, goh);
+}
+
+/** FR-72 + Q23a: a refund goes back to the original part-payers in proportion to what they paid. */
+function refundPayers(orig: ExpenseRow, origPayers: money.PayerPart[] | null, refundTotalMinor: number): money.PayerPart[] | null {
+  if (!origPayers || origPayers.length < 2) return null;
+  const parts = money.scalePayers(origPayers, refundTotalMinor, { leftoverTo: [orig.uploadedByMemberId, orig.paidByMemberId] });
+  return parts.length > 0 ? parts : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -374,6 +491,14 @@ export interface CreateExpenseInput {
   receiptUploadId?: string | null;
   /** The user saw the duplicate warning and chose "Add anyway" (FR-64). */
   confirmDuplicate?: boolean;
+  /** Q23a: several people paid parts of the bill; the parts must sum to the total. */
+  payers?: { memberId: string; paidMinor: number }[] | null;
+  /** Q23b: one person pays another person's share. */
+  coveredBy?: money.Cover[] | null;
+  /** Q23c: personal-only (tracked for me, never split, visible only to me). Duo and group trips. */
+  personal?: boolean;
+  /** Q19: guest-of-honor item policy for an itemized receipt. */
+  gohPolicy?: money.GuestOfHonorItemPolicy | null;
 }
 
 export interface DuplicateInfo {
@@ -402,9 +527,14 @@ export async function createExpense(db: Db, claims: Claims, input: CreateExpense
     const allowed = moneyMemberIds(ctx);
 
     // FR-T10: solo trips are a personal spend tracker: "paid by me, for me".
-    const method: SplitMethod = ctx.size === "solo" ? "just_me" : (input.method ?? "even");
-    const payerId = ctx.size === "solo" ? ctx.me.id : (input.paidByMemberId ?? ctx.me.id);
+    // Q23c: personal-only expenses in duo/group trips are "just me" too, and private.
+    const personal = ctx.size !== "solo" && !!input.personal;
+    if (personal && ctx.me.status !== "active") throw new ExpenseError("forbidden");
+    const method: SplitMethod = ctx.size === "solo" || personal ? "just_me" : (input.method ?? "even");
+    const multi = method === "just_me" ? null : resolvePayers(ctx, input.totalMinor, input.payers);
+    const payerId = method === "just_me" ? ctx.me.id : (multi?.payerId ?? input.paidByMemberId ?? ctx.me.id);
     if (!allowed.has(payerId)) throw new ExpenseError("invalid", "The payer isn't on this trip.");
+    const covers = method === "just_me" ? [] : validateCovers(ctx, input.coveredBy);
 
     if (input.stopId) {
       const [s] = await tx.select({ id: stops.id }).from(stops).where(and(eq(stops.id, input.stopId), eq(stops.tripId, input.tripId)));
@@ -435,7 +565,7 @@ export async function createExpense(db: Db, claims: Claims, input: CreateExpense
     }
 
     // FR-64 / E-11: probable duplicates (never auto-deleted; the user decides).
-    if (!input.confirmDuplicate) {
+    if (!input.confirmDuplicate && !personal) {
       const dups = await findDuplicates(tx, ctx, {
         merchant,
         totalMinor: input.totalMinor,
@@ -466,18 +596,27 @@ export async function createExpense(db: Db, claims: Claims, input: CreateExpense
         : [];
     if (method === "itemized" && items.length === 0) throw new ExpenseError("invalid", "Add the receipt's items, or split it evenly.");
 
+    const coverCfg = covers.length ? { coveredBy: covers } : {};
     const config: ExpenseSplitConfig =
       method === "just_me"
         ? {}
         : method === "even"
-          ? { participants }
-          : { participants, charges: input.charges ?? [], difference: input.difference ?? null };
+          ? { participants, ...coverCfg }
+          : {
+              participants,
+              charges: input.charges ?? [],
+              difference: input.difference ?? null,
+              ...coverCfg,
+              ...(input.gohPolicy ? { gohPolicy: input.gohPolicy } : {}),
+            };
     const split = computeSplit({
       id,
       method,
       currency: input.currency,
       totalMinor: input.totalMinor,
       payerId,
+      payers: multi?.payers ?? null,
+      uploaderId: ctx.me.id,
       config,
       items,
       guestOfHonorIds: gohIds(ctx),
@@ -504,7 +643,9 @@ export async function createExpense(db: Db, claims: Claims, input: CreateExpense
       receiptPath: upload?.storagePath ?? null,
       receiptHash: upload?.imageHash ?? null,
       splitConfig: config,
+      personalMemberId: personal ? ctx.me.id : null,
     });
+    if (multi?.payers) await writePayers(tx, id, multi.payers);
     if (items.length > 0) {
       await tx.insert(expenseItems).values(
         items.map((i) => ({ id: i.id, expenseId: id, label: i.label, amountMinor: i.amountMinor, quantity: i.quantity })),
@@ -569,6 +710,12 @@ export interface UpdateExpenseInput {
   totalMinor?: number;
   /** Even only. */
   participantIds?: string[];
+  /** Q23a: replace who paid what (empty/one entry = a single payer). Must sum to the total. */
+  payers?: { memberId: string; paidMinor: number }[] | null;
+  /** Q23b: replace the "covered by" entries. */
+  coveredBy?: money.Cover[];
+  /** Q19: itemized only. */
+  gohPolicy?: money.GuestOfHonorItemPolicy;
 }
 
 /** FR-68: the uploader, organizers and the owner edit an UNLOCKED expense. Logged by the DB audit trigger. */
@@ -583,21 +730,42 @@ export async function updateExpense(db: Db, claims: Claims, input: UpdateExpense
       throw new ExpenseError("invalid", "Refunds follow the original split.");
     }
     const allowed = moneyMemberIds(ctx);
-    const payerId = input.paidByMemberId ?? e.paidByMemberId;
+    let payerId = input.paidByMemberId ?? e.paidByMemberId;
     if (!allowed.has(payerId)) throw new ExpenseError("invalid", "The payer isn't on this trip.");
-    if (ctx.size === "solo" && payerId !== ctx.me.id && e.splitMethod === "just_me") {
-      throw new ExpenseError("invalid", "Solo expenses are paid by you, for you.");
+    if ((ctx.size === "solo" || e.personalMemberId) && payerId !== e.paidByMemberId && e.splitMethod === "just_me") {
+      throw new ExpenseError("invalid", "This expense is paid by you, for you.");
     }
     let total = e.totalMinor;
     if (input.totalMinor !== undefined) {
       money.assertMinor(input.totalMinor, "total");
       if (input.totalMinor <= 0) throw new ExpenseError("invalid", "Enter the amount you paid.");
       if (e.splitMethod === "itemized" && input.totalMinor !== e.totalMinor) {
-        throw new ExpenseError("invalid", "Itemized totals follow the receipt. Delete and re-add to change them.");
+        throw new ExpenseError("invalid", "Change an itemized receipt's total with \"Edit items\".");
       }
       total = input.totalMinor;
     }
+    // Q23a: several payers. A new total must come with new parts (they have to add up).
+    let payers = await loadPayers(tx, e.id);
+    if (input.payers !== undefined) {
+      if (e.splitMethod === "just_me" || e.refundOfExpenseId) throw new ExpenseError("invalid", "This expense has one payer.");
+      const r = resolvePayers(ctx, total, input.payers);
+      payers = r?.payers ?? null;
+      if (r) payerId = r.payerId;
+    } else if (input.paidByMemberId !== undefined && input.paidByMemberId !== e.paidByMemberId) {
+      payers = null; // picking one payer replaces the parts
+    } else if (payers && total !== e.totalMinor) {
+      throw new ExpenseError("invalid", "Update what each person paid so it adds up to the new total.");
+    }
     let config = configOf(e);
+    if (input.coveredBy !== undefined) {
+      if (e.splitMethod === "just_me" || e.refundOfExpenseId) throw new ExpenseError("invalid", "Nobody else is on this expense.");
+      const covers = validateCovers(ctx, input.coveredBy);
+      config = { ...config, coveredBy: covers };
+    }
+    if (input.gohPolicy !== undefined) {
+      if (e.splitMethod !== "itemized") throw new ExpenseError("invalid");
+      config = { ...config, gohPolicy: input.gohPolicy };
+    }
     if (input.participantIds) {
       if (e.splitMethod !== "even") throw new ExpenseError("invalid", "Only even splits have a people list.");
       const ps = [...new Set(input.participantIds)];
@@ -627,7 +795,91 @@ export async function updateExpense(db: Db, claims: Claims, input: UpdateExpense
       .where(eq(expenses.id, e.id))
       .returning();
     if (!updated) throw new ExpenseError("forbidden");
+    if (!e.refundOfExpenseId) await writePayers(tx, e.id, payers);
     await recomputeStoredShares(tx, updated, gohIds(ctx));
+  });
+}
+
+export interface EditReceiptInput {
+  tripId: string;
+  expenseId: string;
+  totalMinor: number;
+  /** Lines to keep (with `id`) or add (without). Lines left out are removed with their claims. */
+  items: { id?: string | null; label: string; amountMinor: number; quantity?: number }[];
+  charges: money.ReceiptCharge[];
+}
+
+/**
+ * MT6 (founder decision): an itemized receipt can be edited until someone has paid (lock):
+ * items, amounts, total and charges. Claims on kept lines stay (quantity claims are capped at
+ * the new quantity); shares are recomputed. Also the Q17 "enter the line items yourself" path.
+ */
+export async function editItemizedReceipt(db: Db, claims: Claims, input: EditReceiptInput): Promise<{ gapMinor: number }> {
+  return withSession(db, claims, async (tx) => {
+    const ctx = await loadCtx(tx, claims, input.tripId);
+    const e = await loadExpense(tx, ctx, input.expenseId);
+    if (!canManage(ctx, e)) throw new ExpenseError("forbidden", "Only the person who added it or an organizer can edit this.");
+    if (e.deletedAt) throw new ExpenseError("deleted");
+    if (e.lockedAt) throw new ExpenseError("locked", "Someone already paid against this, so it can't be edited. Add a correction instead.");
+    if (e.splitMethod !== "itemized") throw new ExpenseError("invalid");
+    money.assertMinor(input.totalMinor, "total");
+    if (input.totalMinor <= 0) throw new ExpenseError("invalid", "Enter the amount you paid.");
+    const payers = await loadPayers(tx, e.id);
+    if (payers && input.totalMinor !== e.totalMinor) {
+      throw new ExpenseError("invalid", "Update what each person paid so it adds up to the new total.");
+    }
+    const lines = input.items
+      .filter((i) => i.label.trim() || i.amountMinor !== 0)
+      .map((i) => {
+        money.assertMinor(i.amountMinor, "item amount");
+        return {
+          id: i.id ?? null,
+          label: i.label.trim().slice(0, 120) || "Item",
+          amountMinor: i.amountMinor,
+          quantity: Math.max(1, Math.min(99, Math.trunc(i.quantity ?? 1))),
+        };
+      });
+    if (lines.length === 0) throw new ExpenseError("invalid", "Add the receipt's items.");
+    for (const c of input.charges) money.validateReceipt({ totalMinor: 0, currency: e.currency, items: [], charges: [c] });
+    const existing = await tx.select().from(expenseItems).where(eq(expenseItems.expenseId, e.id));
+    const keep = new Set(lines.flatMap((l) => (l.id ? [l.id] : [])));
+    for (const id of keep) if (!existing.some((x) => x.id === id)) throw new ExpenseError("invalid", "That item isn't on this receipt.");
+    const gone = existing.filter((x) => !keep.has(x.id)).map((x) => x.id);
+    if (gone.length) await tx.delete(expenseItems).where(inArray(expenseItems.id, gone));
+    for (const l of lines) {
+      if (l.id) {
+        await tx
+          .update(expenseItems)
+          .set({ label: l.label, amountMinor: l.amountMinor, quantity: l.quantity })
+          .where(eq(expenseItems.id, l.id));
+        await tx
+          .update(expenseItemClaims)
+          .set({ weight: l.quantity })
+          .where(and(eq(expenseItemClaims.itemId, l.id), sql`${expenseItemClaims.weight} > ${l.quantity}`));
+      } else {
+        await tx.insert(expenseItems).values({ expenseId: e.id, label: l.label, amountMinor: l.amountMinor, quantity: l.quantity });
+      }
+    }
+    const sumKind = (k: money.ChargeKind) =>
+      money.sumMinor(input.charges.filter((c) => c.kind === k && !c.includedInItems).map((c) => c.amountMinor));
+    const [updated] = await tx
+      .update(expenses)
+      .set({
+        totalMinor: input.totalMinor,
+        taxMinor: sumKind("tax"),
+        tipMinor: sumKind("tip"),
+        splitConfig: { ...configOf(e), charges: input.charges },
+      })
+      .where(eq(expenses.id, e.id))
+      .returning();
+    await recomputeStoredShares(tx, updated!, gohIds(ctx));
+    const v = money.validateReceipt({
+      totalMinor: input.totalMinor,
+      currency: e.currency,
+      items: lines.map((l) => ({ amountMinor: l.amountMinor, label: l.label })),
+      charges: input.charges,
+    });
+    return { gapMinor: v.discrepancyMinor };
   });
 }
 
@@ -636,6 +888,8 @@ export interface CorrectLockedInput {
   expenseId: string;
   totalMinor: number;
   paidByMemberId: string;
+  /** Q23a: several payers in the corrected version (must sum to `totalMinor`). */
+  payers?: { memberId: string; paidMinor: number }[] | null;
   /** Even expenses may change who's in; others keep their proportions. */
   participantIds?: string[];
   reason: string;
@@ -643,7 +897,8 @@ export interface CorrectLockedInput {
 
 /**
  * FR-69 / E-22: a settled (locked) expense is never edited. The correction is appended as
- * adjustment entries (summing to zero) relative to the expense's current corrected state.
+ * adjustment entries (summing to zero) relative to the expense's current corrected state, plus
+ * a snapshot of the corrected state so spending reports follow it (Q21).
  */
 export async function correctLockedExpense(db: Db, claims: Claims, input: CorrectLockedInput): Promise<{ entries: number }> {
   return withSession(db, claims, async (tx) => {
@@ -658,56 +913,119 @@ export async function correctLockedExpense(db: Db, claims: Claims, input: Correc
       throw new ExpenseError("invalid", "Use a refund to reverse money.");
     }
     if (!moneyMemberIds(ctx).has(input.paidByMemberId)) throw new ExpenseError("invalid", "The payer isn't on this trip.");
-    const original: money.LedgerExpense = {
-      currency: e.currency,
-      totalMinor: e.totalMinor,
-      payerId: e.paidByMemberId,
-      shares: await sharesOf(tx, e.id),
-    };
+    const original = await ledgerOf(tx, e);
     const prior = await adjustmentsFor(tx, e.id, e.currency);
-    const target = await targetSplit(ctx, e, original, prior, input.totalMinor, input.participantIds);
-    const entries = money.correctionAdjustments(original, prior, {
+    const current = await currentState(tx, e, original);
+    // Weights come from the ORIGINAL split so repeated corrections don't drift by a cent each time.
+    const target = targetSplit(ctx, e, original, input.totalMinor, input.participantIds);
+    // Q23a: who paid in the corrected version.
+    let payerId = input.paidByMemberId;
+    let payers: money.PayerPart[] | null = null;
+    const given = input.totalMinor === 0 ? null : resolvePayers(ctx, input.totalMinor, input.payers);
+    if (given) {
+      payerId = given.payerId;
+      payers = given.payers;
+    } else if (current.payers?.length && input.paidByMemberId === current.payerId && input.totalMinor !== 0) {
+      payers = money.scalePayers(current.payers, input.totalMinor, { leftoverTo: pennyTo(e) });
+    }
+    const next: money.LedgerExpense = {
       currency: e.currency,
       totalMinor: input.totalMinor,
-      payerId: input.paidByMemberId,
+      payerId,
+      ...(payers && payers.length ? { payers } : {}),
       shares: target,
-    });
+    };
+    const entries = money.correctionAdjustments(original, prior, next);
     await insertAdjustments(tx, ctx, e.id, entries, reason);
+    await insertCorrection(tx, ctx, e.id, next, reason);
     return { entries: entries.length };
+  });
+}
+
+/** An expense row as the ledger sees it (payers, personal flag, stored shares). */
+async function ledgerOf(tx: Tx, e: ExpenseRow): Promise<money.LedgerExpense> {
+  const payers = await loadPayers(tx, e.id);
+  return {
+    id: e.id,
+    currency: e.currency,
+    totalMinor: e.totalMinor,
+    payerId: e.paidByMemberId,
+    ...(payers ? { payers } : {}),
+    ...(e.personalMemberId ? { personal: true } : {}),
+    shares: await sharesOf(tx, e.id),
+  };
+}
+
+/** The latest corrected state of a settled expense (Q21), or the original when never corrected. */
+async function currentState(tx: Tx, e: ExpenseRow, original: money.LedgerExpense): Promise<money.LedgerExpense> {
+  const [last] = await tx
+    .select()
+    .from(expenseCorrections)
+    .where(eq(expenseCorrections.expenseId, e.id))
+    .orderBy(desc(expenseCorrections.createdAt), desc(expenseCorrections.id))
+    .limit(1);
+  if (!last) return original;
+  const payers = last.payers as money.PayerPart[] | null;
+  return {
+    currency: e.currency,
+    totalMinor: last.totalMinor,
+    payerId: last.paidByMemberId,
+    ...(payers && payers.length ? { payers } : {}),
+    shares: (last.shares as money.Share[]).slice().sort((a, b) => money.compareIds(a.memberId, b.memberId)),
+  };
+}
+
+async function insertCorrection(tx: Tx, ctx: Ctx, expenseId: string, next: money.LedgerExpense, reason: string) {
+  await tx.insert(expenseCorrections).values({
+    expenseId,
+    tripId: ctx.tripId, // set by the DB guard
+    totalMinor: next.totalMinor,
+    shares: next.shares.map((s) => ({ memberId: s.memberId, shareMinor: s.shareMinor })),
+    paidByMemberId: next.payerId,
+    payers: next.payers?.length ? next.payers.map((p) => ({ memberId: p.memberId, paidMinor: p.paidMinor })) : null,
+    reason,
+    createdByMemberId: ctx.me.id, // set by the DB guard
   });
 }
 
 async function adjustmentsFor(tx: Tx, expenseId: string, currency: string): Promise<money.AdjustmentEntry[]> {
   const rows = await tx
-    .select({ memberId: expenseAdjustments.memberId, deltaMinor: expenseAdjustments.deltaMinor })
+    .select({ memberId: expenseAdjustments.memberId, deltaMinor: expenseAdjustments.deltaMinor, reason: expenseAdjustments.reason })
     .from(expenseAdjustments)
     .where(eq(expenseAdjustments.expenseId, expenseId));
-  return rows.map((r) => ({ memberId: r.memberId, currency, deltaMinor: r.deltaMinor }));
+  // Balance resolutions from member removal (FR-9) are only anchored to an expense; they are not
+  // corrections of it, so a later correction must not undo them.
+  return rows
+    .filter((r) => !r.reason.startsWith("member_removed:"))
+    .map((r) => ({ memberId: r.memberId, currency, deltaMinor: r.deltaMinor }));
 }
 
-async function targetSplit(
+/** Corrected shares: even expenses may change who's in; others keep their current proportions. */
+function targetSplit(
   ctx: Ctx,
   e: ExpenseRow,
-  original: money.LedgerExpense,
-  prior: money.AdjustmentEntry[],
+  current: money.LedgerExpense,
   totalMinor: number,
   participantIds: string[] | undefined,
-): Promise<money.Share[]> {
+): money.Share[] {
   if (e.splitMethod === "even" && participantIds?.length) {
-    return money.splitEven({
-      totalMinor,
-      currency: e.currency,
-      participantIds: [...new Set(participantIds)],
-      guestOfHonorIds: gohIds(ctx),
-      tieBreakStart: rotation(e.id),
-    }).shares;
+    return money.applyCoveredBy(
+      money.splitEven({
+        totalMinor,
+        currency: e.currency,
+        participantIds: [...new Set(participantIds)],
+        guestOfHonorIds: gohIds(ctx),
+        leftoverTo: pennyTo(e),
+      }),
+      configOf(e).coveredBy ?? [],
+    ).shares;
   }
-  void prior;
-  const weights = original.shares.map((s) => ({ memberId: s.memberId, weight: Math.abs(s.shareMinor) }));
+  const weights = current.shares.map((s) => ({ memberId: s.memberId, weight: Math.abs(s.shareMinor) }));
   if (weights.every((w) => w.weight === 0)) {
-    return money.splitEven({ totalMinor, currency: e.currency, participantIds: weights.map((w) => w.memberId) }).shares;
+    return money.splitEven({ totalMinor, currency: e.currency, participantIds: weights.map((w) => w.memberId), leftoverTo: pennyTo(e) })
+      .shares;
   }
-  return money.splitByWeights({ totalMinor, currency: e.currency, weights, tieBreakStart: rotation(e.id) }).shares;
+  return money.splitByWeights({ totalMinor, currency: e.currency, weights, leftoverTo: pennyTo(e) }).shares;
 }
 
 async function insertAdjustments(tx: Tx, ctx: Ctx, expenseId: string, entries: money.AdjustmentEntry[], reason: string) {
@@ -765,18 +1083,24 @@ export async function recordRefund(
     const orig = await loadExpense(tx, ctx, input.expenseId);
     if (orig.deletedAt) throw new ExpenseError("deleted");
     if (orig.refundOfExpenseId || orig.totalMinor <= 0) throw new ExpenseError("invalid", "Only an expense can be refunded.");
+    if (orig.personalMemberId) throw new ExpenseError("invalid", "Change the amount of a personal expense instead.");
     const refunds = await tx
       .select({ total: expenses.totalMinor })
       .from(expenses)
       .where(and(eq(expenses.refundOfExpenseId, orig.id), isNull(expenses.deletedAt)));
-    const left = money.refundableRemaining(orig.totalMinor, refunds.map((r) => r.total));
+    // A settled expense that was corrected refunds along its corrected total and split (Q21).
+    const state = await currentState(tx, orig, await ledgerOf(tx, orig));
+    const left = money.refundableRemaining(state.totalMinor, refunds.map((r) => r.total));
     if (input.amountMinor > left) throw new ExpenseError("invalid", "That's more than is left to refund.");
     const id = randomUUID();
     const split = money.refundFromOriginal(
-      { currency: orig.currency, totalMinor: orig.totalMinor, shares: await sharesOf(tx, orig.id) },
+      { currency: orig.currency, totalMinor: state.totalMinor, shares: state.shares.filter((s) => s.shareMinor !== 0) },
       input.amountMinor,
-      { tieBreakStart: rotation(id) },
+      { leftoverTo: pennyTo(orig) },
     );
+    const payers = state.payers?.length
+      ? money.scalePayers(state.payers, split.totalMinor, { leftoverTo: pennyTo(orig) })
+      : null;
     await tx.insert(expenses).values({
       id,
       tripId: ctx.tripId,
@@ -788,11 +1112,12 @@ export async function recordRefund(
       totalMinor: split.totalMinor,
       category: orig.category,
       splitMethod: orig.splitMethod,
-      paidByMemberId: orig.paidByMemberId, // the money went back to the original payer
+      paidByMemberId: state.payerId, // the money went back to the original payer(s)
       uploadedByMemberId: ctx.me.id,
       refundOfExpenseId: orig.id,
       splitConfig: {},
     });
+    if (payers?.length) await writePayers(tx, id, payers);
     await tx.insert(expenseShares).values(split.shares.map((s) => ({ expenseId: id, memberId: s.memberId, shareMinor: s.shareMinor })));
     return { expenseId: id };
   });
@@ -1068,7 +1393,8 @@ async function lateJoinList(tx: Tx, ctx: Ctx, memberId: string): Promise<Checkli
   const out: ChecklistExpense[] = [];
   for (const e of rows) {
     if (e.createdAt >= joined || decided.has(e.id)) continue;
-    if (e.splitMethod === "itemized") continue; // they claim their own items instead (FR-62)
+    if (e.splitMethod === "itemized") continue; // Q22: they claim their own items instead (see lateJoinerClaimables)
+    if (e.personalMemberId) continue; // Q23c: personal expenses are never shared
     const shares = await sharesOf(tx, e.id);
     if (shares.some((s) => s.memberId === memberId)) continue;
     const flag = flagged.find(
@@ -1132,6 +1458,57 @@ export async function lateJoinerChecklist(db: Db, claims: Claims, tripId: string
   });
 }
 
+export interface ClaimableReceipt {
+  expenseId: string;
+  merchant: string;
+  spentOn: string | null;
+  currency: string;
+  totalMinor: number;
+}
+
+/**
+ * Q22 (founder decision): late joiners claim their own items on itemized receipts; organizers
+ * can also add them. For organizers: per late joiner, the unsettled itemized receipts from
+ * before they joined that they have no items on yet.
+ */
+export async function lateJoinerClaimables(
+  db: Db,
+  claims: Claims,
+  tripId: string,
+): Promise<{ memberId: string; name: string; receipts: ClaimableReceipt[] }[]> {
+  return withSession(db, claims, async (tx) => {
+    const ctx = await loadCtx(tx, claims, tripId);
+    if (!ctx.isOrganizer) return [];
+    const rows = await tx
+      .select()
+      .from(expenses)
+      .where(
+        and(
+          eq(expenses.tripId, tripId),
+          eq(expenses.splitMethod, "itemized"),
+          isNull(expenses.deletedAt),
+          isNull(expenses.lockedAt),
+          isNull(expenses.refundOfExpenseId),
+        ),
+      )
+      .orderBy(asc(expenses.createdAt));
+    const out: { memberId: string; name: string; receipts: ClaimableReceipt[] }[] = [];
+    for (const m of ctx.members) {
+      if (m.status !== "active") continue;
+      const joined = m.joinedAt ?? m.createdAt;
+      const receipts: ClaimableReceipt[] = [];
+      for (const e of rows) {
+        if (e.createdAt >= joined) continue;
+        const items = await loadItems(tx, e.id);
+        if (items.some((i) => i.claims.some((c) => c.memberId === m.id))) continue;
+        receipts.push({ expenseId: e.id, merchant: e.merchant, spentOn: e.spentOn, currency: e.currency, totalMinor: e.totalMinor });
+      }
+      if (receipts.length) out.push({ memberId: m.id, name: m.id === ctx.me.id ? "You" : m.displayName, receipts });
+    }
+    return out;
+  });
+}
+
 export async function dropOutChecklist(db: Db, claims: Claims, tripId: string, memberId: string): Promise<ChecklistExpense[]> {
   return withSession(db, claims, async (tx) => {
     const ctx = await loadCtx(tx, claims, tripId);
@@ -1140,18 +1517,23 @@ export async function dropOutChecklist(db: Db, claims: Claims, tripId: string, m
   });
 }
 
-/** Rewrite an unlocked expense's split, or append adjustments for a locked one (FR-69). */
+/** The split as it stands now: stored shares, or a settled expense's latest correction (Q21). */
+async function currentSplit(tx: Tx, e: ExpenseRow): Promise<money.Split> {
+  const original = await ledgerOf(tx, e);
+  const s = e.lockedAt ? await currentState(tx, e, original) : original;
+  return { currency: e.currency, totalMinor: s.totalMinor, shares: [...s.shares] };
+}
+
+/** Rewrite an unlocked expense's split, or append adjustments (and a correction snapshot) for a locked one (FR-69). */
 async function applyNewSplit(tx: Tx, ctx: Ctx, e: ExpenseRow, next: money.Split, reason: string, config?: ExpenseSplitConfig) {
   if (e.lockedAt) {
-    const original: money.LedgerExpense = {
-      currency: e.currency,
-      totalMinor: e.totalMinor,
-      payerId: e.paidByMemberId,
-      shares: await sharesOf(tx, e.id),
-    };
+    const original = await ledgerOf(tx, e);
+    const current = await currentState(tx, e, original);
     const prior = await adjustmentsFor(tx, e.id, e.currency);
-    const entries = money.correctionAdjustments(original, prior, { ...original, shares: next.shares });
+    const target: money.LedgerExpense = { ...current, totalMinor: next.totalMinor, shares: next.shares };
+    const entries = money.correctionAdjustments(original, prior, target);
     await insertAdjustments(tx, ctx, e.id, entries, reason);
+    await insertCorrection(tx, ctx, e.id, target, reason); // Q21: reports follow
     return;
   }
   if (config) await tx.update(expenses).set({ splitConfig: config }).where(eq(expenses.id, e.id));
@@ -1181,7 +1563,7 @@ export async function applyLateJoiner(
       const item = byId.get(id);
       if (!item?.replaces) throw new ExpenseError("invalid");
       const e = await loadExpense(tx, ctx, id);
-      const current: money.Split = { currency: e.currency, totalMinor: e.totalMinor, shares: await sharesOf(tx, e.id) };
+      const current = await currentSplit(tx, e);
       const next = money.replaceMember(current, item.replaces.memberId, joiner.id);
       const cfg = configOf(e);
       const participants = (cfg.participants ?? []).filter((p) => p !== item.replaces!.memberId);
@@ -1202,17 +1584,17 @@ export async function applyLateJoiner(
     for (const id of input.include) {
       if (!byId.has(id)) continue;
       const e = await loadExpense(tx, ctx, id);
-      const current: money.Split = { currency: e.currency, totalMinor: e.totalMinor, shares: await sharesOf(tx, e.id) };
+      const current = await currentSplit(tx, e);
       let next: money.Split;
       let cfg: ExpenseSplitConfig;
       if (e.splitMethod === "just_me") {
         const people = [...new Set([...current.shares.map((s) => s.memberId), joiner.id])];
-        next = money.resplitEvenly(current, people, { guestOfHonorIds: goh, tieBreakStart: rotation(e.id) });
+        next = money.resplitEvenly(current, people, { guestOfHonorIds: goh, leftoverTo: pennyTo(e) });
         cfg = { participants: people };
         if (!e.lockedAt) await tx.update(expenses).set({ splitMethod: "even" }).where(eq(expenses.id, e.id));
       } else {
         const people = [...new Set([...(configOf(e).participants ?? current.shares.map((s) => s.memberId)), joiner.id])];
-        next = money.resplitEvenly(current, people, { guestOfHonorIds: goh, tieBreakStart: rotation(e.id) });
+        next = money.resplitEvenly(current, people, { guestOfHonorIds: goh, leftoverTo: pennyTo(e) });
         cfg = { ...configOf(e), participants: people };
       }
       await applyNewSplit(tx, ctx, e, next, `Added ${joiner.displayName} (joined later)`, cfg);
@@ -1256,7 +1638,7 @@ export async function applyDropOutDecisions(
       if (!list.has(d.expenseId)) continue;
       const e = await loadExpense(tx, ctx, d.expenseId);
       if (d.decision === "redistribute") {
-        const current: money.Split = { currency: e.currency, totalMinor: e.totalMinor, shares: await sharesOf(tx, e.id) };
+        const current = await currentSplit(tx, e);
         const cfg = configOf(e);
         if (e.splitMethod === "itemized" && !e.lockedAt) {
           // Their claimed items go back to the pool (E-1); the uploader re-assigns or the rest share them.
@@ -1274,7 +1656,7 @@ export async function applyDropOutDecisions(
             .returning();
           await recomputeStoredShares(tx, updated!, gohIds(ctx));
         } else {
-          const next = money.applyDropOut(current, who.id, "redistribute", { tieBreakStart: rotation(e.id) }).split;
+          const next = money.applyDropOut(current, who.id, "redistribute", { leftoverTo: pennyTo(e) }).split;
           const kept = next.shares.filter((s) => s.memberId !== who.id || s.shareMinor !== 0);
           await applyNewSplit(
             tx,
@@ -1312,12 +1694,19 @@ export interface ExpenseListItem {
   method: SplitMethod;
   payerId: string;
   payerName: string;
+  /** Q23a: number of people who paid parts (0 or 1 = one payer). */
+  payerCount: number;
   myShareMinor: number;
   locked: boolean;
   isRefund: boolean;
+  /** Q23c: tracked for me only. */
+  personal: boolean;
+  /** Unclaimed items; until claimed they sit on the uploader (Q16). */
   pendingClaims: number;
   /** The caller added it and items are still unclaimed (D22 nudge). */
   needsMyAttention: boolean;
+  /** Q17: the lines don't add up to the total ("couldn't read this receipt correctly"). */
+  unreadable: boolean;
   hasReceipt: boolean;
 }
 
@@ -1338,6 +1727,29 @@ export interface Transfer {
   amountMinor: number;
 }
 
+/** MT1: one line of the in-app "What changed" list. */
+export interface ActivityView {
+  key: string;
+  kind: "expense" | "correction" | "edit" | "payment";
+  at: Date;
+  currency: string;
+  expenseId: string | null;
+  merchant: string | null;
+  actorName: string;
+  otherName: string | null;
+  effectMinor: number | null;
+  myShareMinor: number | null;
+  reason: string | null;
+}
+
+/** Q24: two receipts whose line items look like the same bill. */
+export interface DuplicatePair {
+  a: { id: string; merchant: string; totalMinor: number; currency: string; spentOn: string | null; uploadedBy: string; locked: boolean };
+  b: { id: string; merchant: string; totalMinor: number; currency: string; spentOn: string | null; uploadedBy: string; locked: boolean };
+  labelPermille: number;
+  amountPermille: number;
+}
+
 export interface MoneyOverview {
   tripId: string;
   size: TripSize;
@@ -1350,15 +1762,44 @@ export interface MoneyOverview {
   mine: SettleLine[];
   /** Everyone's suggested transfers (groups, FR-70). Recomputed on view (E-23). */
   transfers: Transfer[];
+  /** Group spending (personal-only expenses excluded), corrections applied (Q21). */
   categories: Record<string, Partial<Record<ExpenseCategory, number>>>;
   spend: Record<string, Record<string, number>>;
+  /** Q23c: the caller's personal-only spend per currency. */
+  personalSpend: Record<string, number>;
   currencies: string[];
   payments: { id: string; fromName: string; toName: string; currency: string; amountMinor: number; createdAt: Date; note: string | null }[];
   budgetCheckIn: boolean;
+  /** MT1: latest money changes affecting the caller. */
+  activity: ActivityView[];
+  /** Organizer-only flags (empty for everyone else). */
+  organizer: {
+    /** Q16: receipts whose unclaimed items sit on the uploader. */
+    unclaimed: { expenseId: string; merchant: string; uploaderName: string; count: number }[];
+    /** Q24: probable duplicates by line items, not yet resolved. */
+    duplicates: DuplicatePair[];
+  };
+}
+
+/** Q21: corrected-state snapshots by expense, oldest first. */
+async function correctionsBy(tx: Tx, ids: string[]): Promise<Map<string, money.CorrectionSnapshot[]>> {
+  const out = new Map<string, money.CorrectionSnapshot[]>();
+  if (!ids.length) return out;
+  const rows = await tx
+    .select()
+    .from(expenseCorrections)
+    .where(inArray(expenseCorrections.expenseId, ids))
+    .orderBy(asc(expenseCorrections.createdAt), asc(expenseCorrections.id));
+  for (const r of rows) {
+    const list = out.get(r.expenseId) ?? [];
+    list.push({ totalMinor: r.totalMinor, shares: r.shares as money.Share[] });
+    out.set(r.expenseId, list);
+  }
+  return out;
 }
 
 export async function getMoneyOverview(db: Db, claims: Claims, tripId: string): Promise<MoneyOverview> {
-  return withSession(db, claims, async (tx) => {
+  const o = await withSession(db, claims, async (tx) => {
     const ctx = await loadCtx(tx, claims, tripId);
     const rows = await tx
       .select()
@@ -1367,6 +1808,7 @@ export async function getMoneyOverview(db: Db, claims: Claims, tripId: string): 
       .orderBy(desc(expenses.createdAt));
     const ids = rows.map((r) => r.id);
     const shareRows = ids.length ? await tx.select().from(expenseShares).where(inArray(expenseShares.expenseId, ids)) : [];
+    const payerRows = ids.length ? await tx.select().from(expensePayers).where(inArray(expensePayers.expenseId, ids)) : [];
     const itemRows = ids.length
       ? await tx.select().from(expenseItems).where(inArray(expenseItems.expenseId, ids))
       : [];
@@ -1375,6 +1817,10 @@ export async function getMoneyOverview(db: Db, claims: Claims, tripId: string): 
       : [];
     const claimed = new Set(claimRows.map((c) => c.itemId));
     const payRows = await tx.select().from(payments).where(eq(payments.tripId, tripId)).orderBy(desc(payments.createdAt));
+    const adjRows = ids.length
+      ? await tx.select().from(expenseAdjustments).where(inArray(expenseAdjustments.expenseId, ids))
+      : [];
+    const corrections = await correctionsBy(tx, ids);
 
     const name = (id: string) => {
       const m = ctx.members.find((x) => x.id === id);
@@ -1388,11 +1834,19 @@ export async function getMoneyOverview(db: Db, claims: Claims, tripId: string): 
       list.push({ memberId: s.memberId, shareMinor: s.shareMinor });
       sharesBy.set(s.expenseId, list);
     }
+    const payersBy = new Map<string, money.PayerPart[]>();
+    for (const p of payerRows) {
+      const list = payersBy.get(p.expenseId) ?? [];
+      list.push({ memberId: p.memberId, paidMinor: p.paidMinor });
+      payersBy.set(p.expenseId, list);
+    }
     const ledger: money.LedgerExpense[] = rows.map((r) => ({
       id: r.id,
       currency: r.currency,
       totalMinor: r.totalMinor,
       payerId: r.paidByMemberId,
+      ...(payersBy.get(r.id) ? { payers: payersBy.get(r.id)! } : {}),
+      ...(r.personalMemberId ? { personal: true } : {}),
       shares: (sharesBy.get(r.id) ?? []).sort((a, b) => money.compareIds(a.memberId, b.memberId)),
     }));
 
@@ -1426,63 +1880,259 @@ export async function getMoneyOverview(db: Db, claims: Claims, tripId: string): 
         }));
     }
 
-    const report = rows.map((r, i) => ({
-      currency: r.currency,
-      totalMinor: r.totalMinor,
-      category: r.category,
-      shares: ledger[i]!.shares,
-    }));
+    // Reports (FR-65/66): group spending without personal-only expenses, corrections applied (Q21).
+    const report = rows.flatMap((r, i) =>
+      r.personalMemberId
+        ? []
+        : [
+            money.correctedForReport(
+              { currency: r.currency, totalMinor: r.totalMinor, category: r.category, shares: ledger[i]!.shares },
+              corrections.get(r.id) ?? [],
+            ),
+          ],
+    );
+    const personalSpend: Record<string, number> = {};
+    for (const r of rows) {
+      if (r.personalMemberId !== ctx.me.id) continue;
+      personalSpend[r.currency] = money.sumMinor([personalSpend[r.currency] ?? 0, r.totalMinor]);
+    }
     const currencies = [...new Set(rows.map((r) => r.currency))].sort();
 
-    return {
-      tripId,
-      size: ctx.size,
-      me: { memberId: ctx.me.id, isOrganizer: ctx.isOrganizer, displayName: ctx.me.displayName },
-      members: ctx.members
-        .filter((m) => m.status === "active" || m.status === "not_attending" || m.status === "removed")
-        .map((m) => ({ id: m.id, displayName: m.displayName, status: m.status, isGuestOfHonor: m.isGuestOfHonor })),
-      expenses: rows.map((r, i) => {
-        const items = itemRows.filter((it) => it.expenseId === r.id);
-        const pending = r.lockedAt ? 0 : items.filter((it) => !claimed.has(it.id) && !it.absorbed && it.amountMinor !== 0).length;
-        return {
-          id: r.id,
-          merchant: r.merchant,
-          spentOn: r.spentOn,
-          createdAt: r.createdAt,
-          currency: r.currency,
+    const itemsOf = (id: string) => itemRows.filter((it) => it.expenseId === id);
+    const list: ExpenseListItem[] = rows.map((r, i) => {
+      const items = itemsOf(r.id);
+      const pending = r.lockedAt ? 0 : items.filter((it) => !claimed.has(it.id) && !it.absorbed && it.amountMinor !== 0).length;
+      const unreadable =
+        r.splitMethod === "itemized" &&
+        !money.validateReceipt({
           totalMinor: r.totalMinor,
-          category: r.category,
-          method: r.splitMethod,
-          payerId: r.paidByMemberId,
-          payerName: name(r.paidByMemberId),
-          myShareMinor: ledger[i]!.shares.find((s) => s.memberId === ctx.me.id)?.shareMinor ?? 0,
-          locked: !!r.lockedAt,
-          isRefund: !!r.refundOfExpenseId,
-          pendingClaims: pending,
-          needsMyAttention: pending > 0 && r.uploadedByMemberId === ctx.me.id,
-          hasReceipt: !!r.receiptPath,
-        };
-      }),
-      balances,
-      mine: mineRaw.map((l) => ({ ...l, otherName: name(l.otherMemberId) })),
-      transfers,
-      categories: money.categoryTotals(report),
-      spend: money.spendPerPerson(report),
-      currencies,
-      payments: payRows.map((p) => ({
-        id: p.id,
-        fromName: name(p.fromMemberId),
-        toName: name(p.toMemberId),
+          currency: r.currency,
+          items: items.map((it) => ({ amountMinor: it.amountMinor, label: it.label })),
+          charges: configOf(r).charges ?? [],
+        }).balanced;
+      return {
+        id: r.id,
+        merchant: r.merchant,
+        spentOn: r.spentOn,
+        createdAt: r.createdAt,
+        currency: r.currency,
+        totalMinor: r.totalMinor,
+        category: r.category,
+        method: r.splitMethod,
+        payerId: r.paidByMemberId,
+        payerName: name(r.paidByMemberId),
+        payerCount: payersBy.get(r.id)?.length ?? 1,
+        myShareMinor: ledger[i]!.shares.find((s) => s.memberId === ctx.me.id)?.shareMinor ?? 0,
+        locked: !!r.lockedAt,
+        isRefund: !!r.refundOfExpenseId,
+        personal: !!r.personalMemberId,
+        pendingClaims: pending,
+        needsMyAttention: pending > 0 && r.uploadedByMemberId === ctx.me.id,
+        unreadable,
+        hasReceipt: !!r.receiptPath,
+      };
+    });
+
+    // MT1: money changes that affect me (expenses, corrections, payments; edits added below).
+    const events: money.MoneyEvent[] = [];
+    rows.forEach((r, i) => {
+      events.push({
+        kind: "expense",
+        expenseId: r.id,
+        atMs: r.createdAt.getTime(),
+        merchant: r.merchant,
+        currency: r.currency,
+        totalMinor: r.totalMinor,
+        payerId: r.paidByMemberId,
+        ...(ledger[i]!.payers ? { payers: ledger[i]!.payers } : {}),
+        shares: ledger[i]!.shares,
+        isRefund: !!r.refundOfExpenseId,
+        personal: !!r.personalMemberId,
+        actorId: r.uploadedByMemberId,
+      });
+    });
+    const byCorrection = new Map<string, typeof adjRows>();
+    for (const a of adjRows) {
+      const k = `${a.expenseId}|${a.createdAt.getTime()}|${a.createdByMemberId}|${a.reason}`;
+      byCorrection.set(k, [...(byCorrection.get(k) ?? []), a]);
+    }
+    for (const group of byCorrection.values()) {
+      const a = group[0]!;
+      const r = rows.find((x) => x.id === a.expenseId);
+      if (!r) continue;
+      events.push({
+        kind: "correction",
+        expenseId: a.expenseId,
+        atMs: a.createdAt.getTime(),
+        merchant: r.merchant,
+        currency: r.currency,
+        entries: group.map((g) => ({ memberId: g.memberId, deltaMinor: g.deltaMinor })),
+        reason: a.reason.startsWith("member_removed:") ? "Balance settled when someone left" : a.reason,
+        actorId: a.createdByMemberId,
+      });
+    }
+    for (const p of payRows) {
+      events.push({
+        kind: "payment",
+        paymentId: p.id,
+        atMs: p.createdAt.getTime(),
+        fromMemberId: p.fromMemberId,
+        toMemberId: p.toMemberId,
         currency: p.currency,
         amountMinor: p.amountMinor,
-        createdAt: p.createdAt,
-        note: p.note,
-      })),
-      budgetCheckIn: ctx.trip.budgetCheckIn,
+        actorId: p.recordedByMemberId,
+      });
+    }
+
+    // Organizer flags: Q16 unclaimed items on the uploader, Q24 line-item duplicates.
+    const organizer: MoneyOverview["organizer"] = { unclaimed: [], duplicates: [] };
+    if (ctx.isOrganizer) {
+      for (const e of list) {
+        if (e.pendingClaims > 0 && !e.personal) {
+          const r = rows.find((x) => x.id === e.id)!;
+          organizer.unclaimed.push({ expenseId: e.id, merchant: e.merchant, uploaderName: name(r.uploadedByMemberId), count: e.pendingClaims });
+        }
+      }
+      const receipts = rows
+        .filter((r) => !r.refundOfExpenseId && !r.personalMemberId && itemsOf(r.id).length > 0)
+        .map((r) => ({
+          id: r.id,
+          currency: r.currency,
+          occurredAtMs: dateMs(r.spentOn, r.createdAt),
+          items: itemsOf(r.id).map((it) => ({ label: it.label, amountMinor: it.amountMinor })),
+        }));
+      const pairs = money.findSimilarReceiptPairs(receipts);
+      if (pairs.length) {
+        const reviewed = await tx
+          .select({ a: expenseDuplicateReviews.expenseId, b: expenseDuplicateReviews.otherExpenseId })
+          .from(expenseDuplicateReviews)
+          .where(eq(expenseDuplicateReviews.tripId, tripId));
+        const done = new Set(reviewed.map((x) => `${x.a}|${x.b}`));
+        const view = (id: string) => {
+          const r = rows.find((x) => x.id === id)!;
+          return {
+            id,
+            merchant: r.merchant,
+            totalMinor: r.totalMinor,
+            currency: r.currency,
+            spentOn: r.spentOn,
+            uploadedBy: name(r.uploadedByMemberId),
+            locked: !!r.lockedAt,
+          };
+        };
+        for (const p of pairs) {
+          if (done.has(`${p.a}|${p.b}`)) continue;
+          organizer.duplicates.push({ a: view(p.a), b: view(p.b), labelPermille: p.similarity.labelPermille, amountPermille: p.similarity.amountPermille });
+        }
+      }
+    }
+
+    return {
+      ctx,
+      events,
+      name,
+      visibleIds: ids,
+      sharesBy,
+      overview: {
+        tripId,
+        size: ctx.size,
+        me: { memberId: ctx.me.id, isOrganizer: ctx.isOrganizer, displayName: ctx.me.displayName },
+        members: ctx.members
+          .filter((m) => m.status === "active" || m.status === "not_attending" || m.status === "removed")
+          .map((m) => ({ id: m.id, displayName: m.displayName, status: m.status, isGuestOfHonor: m.isGuestOfHonor })),
+        expenses: list,
+        balances,
+        mine: mineRaw.map((l) => ({ ...l, otherName: name(l.otherMemberId) })),
+        transfers,
+        categories: money.categoryTotals(report),
+        spend: money.spendPerPerson(report),
+        personalSpend,
+        currencies,
+        payments: payRows.map((p) => ({
+          id: p.id,
+          fromName: name(p.fromMemberId),
+          toName: name(p.toMemberId),
+          currency: p.currency,
+          amountMinor: p.amountMinor,
+          createdAt: p.createdAt,
+          note: p.note,
+        })),
+        budgetCheckIn: ctx.trip.budgetCheckIn,
+        activity: [] as ActivityView[],
+        organizer,
+      } satisfies MoneyOverview,
     };
   });
+
+  // MT1 edits: the audit trail is organizer-only under RLS, so read just the edit times of
+  // expenses the caller can already see (ids from the RLS read above) as the service.
+  const editRows = o.visibleIds.length
+    ? await asService(db, (tx) =>
+        tx
+          .select({ entityId: auditLog.entityId, actor: auditLog.actorMemberId, at: auditLog.createdAt })
+          .from(auditLog)
+          .where(
+            and(eq(auditLog.tripId, tripId), eq(auditLog.entity, "expense"), eq(auditLog.action, "update"), inArray(auditLog.entityId, o.visibleIds)),
+          )
+          .orderBy(desc(auditLog.createdAt))
+          .limit(100),
+      )
+    : [];
+  const rowsById = new Map(o.overview.expenses.map((e) => [e.id, e]));
+  for (const ed of editRows) {
+    const e = ed.entityId ? rowsById.get(ed.entityId) : undefined;
+    if (!e || !ed.actor || e.personal) continue;
+    o.events.push({
+      kind: "edit",
+      expenseId: e.id,
+      atMs: ed.at.getTime(),
+      merchant: e.merchant,
+      currency: e.currency,
+      shares: o.sharesBy.get(e.id) ?? [],
+      actorId: ed.actor,
+    });
+  }
+  o.overview.activity = money.moneyActivityFor(o.ctx.me.id, o.events, 15).map((a) => ({
+    key: a.key,
+    kind: a.kind,
+    at: new Date(a.atMs),
+    currency: a.currency,
+    expenseId: a.expenseId,
+    merchant: a.merchant,
+    actorName: o.name(a.actorId),
+    otherName: a.otherMemberId ? o.name(a.otherMemberId) : null,
+    effectMinor: a.effectMinor,
+    myShareMinor: a.myShareMinor,
+    reason: a.reason,
+  }));
+  return o.overview;
 }
 
+/** Q24: an organizer resolves a flagged pair: keep both (recorded), or delete one (soft delete, unlocked only). */
+export async function resolveDuplicatePair(
+  db: Db,
+  claims: Claims,
+  input: { tripId: string; expenseId: string; otherExpenseId: string; resolution: "keep_both" | "delete_first" | "delete_second" },
+): Promise<void> {
+  const [a, b] = [input.expenseId, input.otherExpenseId].sort(money.compareIds) as [string, string];
+  if (a === b) throw new ExpenseError("invalid");
+  if (input.resolution === "keep_both") {
+    await withSession(db, claims, async (tx) => {
+      const ctx = await loadCtx(tx, claims, input.tripId);
+      if (!ctx.isOrganizer) throw new ExpenseError("forbidden", "Only organizers resolve duplicates.");
+      await loadExpense(tx, ctx, a);
+      await loadExpense(tx, ctx, b);
+      await tx.insert(expenseDuplicateReviews).values({ tripId: ctx.tripId, expenseId: a, otherExpenseId: b, decision: "keep_both" });
+    });
+    return;
+  }
+  const target = input.resolution === "delete_first" ? input.expenseId : input.otherExpenseId;
+  await withSession(db, claims, async (tx) => {
+    const ctx = await loadCtx(tx, claims, input.tripId);
+    if (!ctx.isOrganizer) throw new ExpenseError("forbidden", "Only organizers resolve duplicates.");
+  });
+  await deleteExpense(db, claims, input.tripId, target);
+}
 /** P2: the Money section appears once the caller can see at least one expense. */
 export async function hasExpenses(db: Db, claims: Claims, tripId: string): Promise<boolean> {
   if (!claims.sub) return false;
@@ -1503,12 +2153,16 @@ export interface ExpenseDetail {
   category: ExpenseCategory;
   method: SplitMethod;
   payerId: string;
+  /** Q23a: part-payers (empty = `payerId` paid it all). */
+  payers: { memberId: string; name: string; paidMinor: number }[];
   uploaderId: string;
   stopId: string | null;
   ideaId: string | null;
   ideaTitle: string | null;
   locked: boolean;
   deleted: boolean;
+  /** Q23c: tracked for the caller only. */
+  personal: boolean;
   refundOf: { id: string; merchant: string } | null;
   refunds: { id: string; totalMinor: number; createdAt: Date }[];
   refundableMinor: number;
@@ -1527,9 +2181,21 @@ export interface ExpenseDetail {
   charges: money.ReceiptCharge[];
   validation: money.ReceiptValidation | null;
   adjustments: { memberId: string; name: string; deltaMinor: number; reason: string; createdAt: Date }[];
+  /** Q21: the latest corrected total of a settled expense (null if never corrected). */
+  correctedTotalMinor: number | null;
   members: { id: string; displayName: string; status: string; isGuestOfHonor: boolean; managedByMe: boolean }[];
   me: { memberId: string; isOrganizer: boolean };
   size: TripSize;
+  /** Q18: leftover pennies from the split and who took them (null = divided exactly). */
+  rounding: { leftoverMinor: number; name: string | null } | null;
+  /** Q16: unclaimed items currently on the uploader. */
+  unclaimedOnUploader: { count: number; uploaderName: string } | null;
+  /** Q17: lines vs total gap the payer(s) cover; null when the receipt adds up. */
+  gap: { amountMinor: number; coveredBy: string } | null;
+  /** Q19: a guest of honor has items on this receipt: show the choice. */
+  guestOfHonorItems: { names: string[]; policy: money.GuestOfHonorItemPolicy; fallbackItems: number } | null;
+  /** Q23b: who covers whom. */
+  coveredBy: { memberId: string; name: string; coveredById: string; coveredByName: string }[];
 }
 
 export async function getExpenseDetail(db: Db, claims: Claims, tripId: string, expenseId: string): Promise<ExpenseDetail | null> {
@@ -1540,6 +2206,7 @@ export async function getExpenseDetail(db: Db, claims: Claims, tripId: string, e
     const name = (id: string) => (id === ctx.me.id ? "You" : (ctx.members.find((m) => m.id === id)?.displayName ?? "Former member"));
     const items = await loadItems(tx, e.id);
     const shares = await sharesOf(tx, e.id);
+    const payers = await loadPayers(tx, e.id);
     const adj = await tx
       .select()
       .from(expenseAdjustments)
@@ -1553,7 +2220,7 @@ export async function getExpenseDetail(db: Db, claims: Claims, tripId: string, e
       ? await tx.select({ id: expenses.id, merchant: expenses.merchant }).from(expenses).where(eq(expenses.id, e.refundOfExpenseId))
       : [];
     const [idea] = e.ideaId ? await tx.select({ title: ideas.title }).from(ideas).where(eq(ideas.id, e.ideaId)) : [];
-    // E-31: the photo shows only for people on the expense (RLS on receipt_uploads).
+    // MT3: the photo shows for everyone who can see the expense (RLS on receipt_uploads).
     const [upload] = await tx
       .select({ id: receiptUploads.id })
       .from(receiptUploads)
@@ -1569,6 +2236,38 @@ export async function getExpenseDetail(db: Db, claims: Claims, tripId: string, e
             charges: cfg.charges ?? [],
           })
         : null;
+    const state = await currentState(tx, e, await ledgerOf(tx, e));
+
+    // Q16–Q19 flags come from the same deterministic split the shares were stored from.
+    let split: ComputedSplit | null = null;
+    if (!e.refundOfExpenseId) {
+      try {
+        split = computeSplit({
+          id: e.id,
+          method: e.splitMethod,
+          currency: e.currency,
+          totalMinor: e.totalMinor,
+          payerId: e.paidByMemberId,
+          payers,
+          uploaderId: e.uploadedByMemberId,
+          config: cfg,
+          items,
+          guestOfHonorIds: [...goh],
+        });
+      } catch {
+        split = null; // e.g. settled under different guest-of-honor flags (MT4)
+      }
+    }
+    const gohWithItems = [...new Set(items.flatMap((i) => i.claims.map((c) => c.memberId)).filter((m) => goh.has(m)))];
+    const unclaimed = items.filter((i) => i.claims.length === 0 && !i.absorbed && i.amountMinor !== 0).length;
+    const gapPolicy = cfg.difference ?? payerCoversGap(e.paidByMemberId, payers);
+    const gapBy =
+      typeof gapPolicy === "object" && "assignTo" in gapPolicy
+        ? name(gapPolicy.assignTo)
+        : typeof gapPolicy === "object" && "proportionalTo" in gapPolicy
+          ? "the payers"
+          : "everyone";
+
     return {
       id: e.id,
       tripId,
@@ -1580,16 +2279,20 @@ export async function getExpenseDetail(db: Db, claims: Claims, tripId: string, e
       category: e.category,
       method: e.splitMethod,
       payerId: e.paidByMemberId,
+      payers: (payers ?? []).map((p) => ({ ...p, name: name(p.memberId) })),
       uploaderId: e.uploadedByMemberId,
       stopId: e.stopId,
       ideaId: e.ideaId,
       ideaTitle: idea?.title ?? null,
       locked: !!e.lockedAt,
       deleted: !!e.deletedAt,
+      personal: !!e.personalMemberId,
       refundOf: orig ?? null,
       refunds,
       refundableMinor:
-        e.refundOfExpenseId || e.totalMinor <= 0 ? 0 : money.refundableRemaining(e.totalMinor, refunds.map((r) => r.totalMinor)),
+        e.refundOfExpenseId || e.personalMemberId || state.totalMinor <= 0
+          ? 0
+          : money.refundableRemaining(state.totalMinor, refunds.map((r) => r.totalMinor)),
       canManage: canManage(ctx, e),
       receiptUploadId: upload?.id ?? null,
       participants: cfg.participants ?? shares.map((s) => s.memberId),
@@ -1611,6 +2314,7 @@ export async function getExpenseDetail(db: Db, claims: Claims, tripId: string, e
         reason: a.reason,
         createdAt: a.createdAt,
       })),
+      correctedTotalMinor: e.lockedAt && state.totalMinor !== e.totalMinor ? state.totalMinor : null,
       members: ctx.members
         .filter((m) => m.status === "active" || m.status === "not_attending" || m.status === "removed")
         .map((m) => ({
@@ -1622,6 +2326,22 @@ export async function getExpenseDetail(db: Db, claims: Claims, tripId: string, e
         })),
       me: { memberId: ctx.me.id, isOrganizer: ctx.isOrganizer },
       size: ctx.size,
+      rounding:
+        split && split.rounding.leftoverMinor > 0
+          ? { leftoverMinor: split.rounding.leftoverMinor, name: split.rounding.memberId ? name(split.rounding.memberId) : null }
+          : null,
+      unclaimedOnUploader: unclaimed && !e.lockedAt ? { count: unclaimed, uploaderName: name(e.uploadedByMemberId) } : null,
+      gap: validation && !validation.balanced ? { amountMinor: validation.discrepancyMinor, coveredBy: gapBy } : null,
+      guestOfHonorItems:
+        e.splitMethod === "itemized" && gohWithItems.length
+          ? { names: gohWithItems.map(name), policy: cfg.gohPolicy ?? "sharers", fallbackItems: split?.gohFallbackItemIds.length ?? 0 }
+          : null,
+      coveredBy: (cfg.coveredBy ?? []).map((c) => ({
+        memberId: c.memberId,
+        name: name(c.memberId),
+        coveredById: c.coveredBy,
+        coveredByName: name(c.coveredBy),
+      })),
     };
   });
 }

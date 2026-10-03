@@ -19,9 +19,11 @@ import {
   correctLockedExpense,
   createExpense,
   deleteExpense,
+  editItemizedReceipt,
   ExpenseError,
   recordPayment,
   recordRefund,
+  resolveDuplicatePair,
   restoreExpense,
   saveBudgetAnswer,
   setAbsorbed,
@@ -62,6 +64,8 @@ const MONEY_MESSAGES: Partial<Record<string, string>> = {
   PARSE_ERROR: "That amount doesn't look right.",
   REFUND_EXCEEDS_ORIGINAL: "The refund is more than the expense.",
   INVALID_PAYMENT: "A payment needs two different people and a positive amount.",
+  PAYERS_DO_NOT_SUM: "What each person paid has to add up to the total.",
+  INVALID_COVER: "Check who covers whom: nobody covers themselves, and only one person covers each share.",
 };
 
 function fail(e: unknown, tripId: string): { ok: false; error: string; signin?: string } {
@@ -97,6 +101,9 @@ const differenceSchema = z.union([
   z.object({ assignTo: id }),
   z.object({ splitEvenlyAmong: z.array(id).min(1) }),
 ]);
+const payersSchema = z.array(z.object({ memberId: id, paidMinor: minor })).max(50);
+const coversSchema = z.array(z.object({ memberId: id, coveredBy: id })).max(50);
+const gohPolicySchema = z.enum(["sharers", "even", "proportional"]);
 
 const createSchema = z.object({
   merchant: z.string().max(120),
@@ -114,6 +121,10 @@ const createSchema = z.object({
   difference: differenceSchema.nullable().optional(),
   receiptUploadId: id.nullable().optional(),
   confirmDuplicate: z.boolean().optional(),
+  payers: payersSchema.nullable().optional(),
+  coveredBy: coversSchema.nullable().optional(),
+  personal: z.boolean().optional(),
+  gohPolicy: gohPolicySchema.nullable().optional(),
 });
 export type CreateExpenseForm = z.infer<typeof createSchema>;
 
@@ -129,7 +140,7 @@ export async function createExpenseAction(tripId: string, form: CreateExpenseFor
       difference: (input.difference ?? null) as money.DifferencePolicy | null,
     });
     if (!r.ok) return { ok: false, error: "This looks like an expense that's already here.", duplicates: r.duplicates };
-    await notifyChange(tripId, r.expenseId);
+    if (!input.personal) await notifyChange(tripId, r.expenseId); // Q23c: personal expenses send nothing
     refresh();
     return {
       ok: true,
@@ -150,6 +161,9 @@ const updateSchema = z.object({
   paidByMemberId: id.optional(),
   totalMinor: minor.optional(),
   participantIds: z.array(id).max(200).optional(),
+  payers: payersSchema.nullable().optional(),
+  coveredBy: coversSchema.optional(),
+  gohPolicy: gohPolicySchema.optional(),
 });
 
 /** FR-68: edit an unlocked expense. */
@@ -161,6 +175,61 @@ export async function updateExpenseAction(tripId: string, expenseId: string, pat
     await notifyChange(tripId, expenseId);
     refresh();
     return { ok: true, message: "Saved. Balances updated." };
+  } catch (e) {
+    return fail(e, tripId);
+  }
+}
+
+/** MT6 / Q17: edit an itemized receipt's lines, total and charges before anyone has paid. */
+export async function editReceiptAction(
+  tripId: string,
+  expenseId: string,
+  form: { totalMinor: number; items: { id?: string | null; label: string; amountMinor: number; quantity?: number }[]; charges: money.ReceiptCharge[] },
+): Promise<MoneyResult> {
+  try {
+    const input = z
+      .object({
+        totalMinor: minor,
+        items: z
+          .array(z.object({ id: id.nullable().optional(), label: z.string().max(120), amountMinor: minor, quantity: z.number().int().min(1).max(99).optional() }))
+          .min(1)
+          .max(200),
+        charges: z.array(chargeSchema).max(20),
+      })
+      .parse(form);
+    const { db, claims } = await full(tripId);
+    const r = await editItemizedReceipt(db, claims, {
+      tripId,
+      expenseId: id.parse(expenseId),
+      totalMinor: input.totalMinor,
+      items: input.items,
+      charges: input.charges as money.ReceiptCharge[],
+    });
+    await notifyChange(tripId, expenseId);
+    refresh();
+    return { ok: true, message: r.gapMinor === 0 ? "Saved. It adds up now." : "Saved. The payer covers what's left over." };
+  } catch (e) {
+    return fail(e, tripId);
+  }
+}
+
+/** Q24: an organizer keeps both flagged receipts, or deletes one. */
+export async function resolveDuplicateAction(
+  tripId: string,
+  expenseId: string,
+  otherExpenseId: string,
+  resolution: "keep_both" | "delete_first" | "delete_second",
+): Promise<MoneyResult> {
+  try {
+    const { db, claims } = await full(tripId);
+    await resolveDuplicatePair(db, claims, {
+      tripId,
+      expenseId: id.parse(expenseId),
+      otherExpenseId: id.parse(otherExpenseId),
+      resolution: z.enum(["keep_both", "delete_first", "delete_second"]).parse(resolution),
+    });
+    refresh();
+    return { ok: true, message: resolution === "keep_both" ? "Kept both." : "Deleted the duplicate." };
   } catch (e) {
     return fail(e, tripId);
   }

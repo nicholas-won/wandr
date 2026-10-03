@@ -57,6 +57,13 @@
       "when": 1791051331142,
       "tag": "0008_founder_decisions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791051854800,
+      "tag": "0009_money_decisions",
+      "breakpoints": true
     }
   ]
 }

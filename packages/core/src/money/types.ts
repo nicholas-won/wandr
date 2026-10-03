@@ -19,12 +19,29 @@ export interface Split {
   shares: Share[];
 }
 
+/** One payer's part of a bill paid by several people (Q23a). */
+export interface PayerPart {
+  memberId: MemberId;
+  paidMinor: number;
+}
+
 /** Minimal expense shape the ledger needs (FR-70). */
 export interface LedgerExpense {
   id?: string;
   currency: CurrencyCode;
   totalMinor: number;
+  /** The payer (or the main payer when `payers` is set). */
   payerId: MemberId;
+  /**
+   * Q23a: several people paid parts of one bill. When present it replaces `payerId` in the
+   * ledger; the parts must sum to `totalMinor` exactly (see `normalizePayers`).
+   */
+  payers?: readonly PayerPart[];
+  /**
+   * Q23c: a personal-only expense (tracked for one person, never split). Excluded from group
+   * balances entirely.
+   */
+  personal?: boolean;
   shares: readonly Share[];
 }
 

@@ -1,7 +1,7 @@
-import { allocateBig, compareIds } from "./allocate";
+import { allocateBigDetailed, compareIds } from "./allocate";
 import { assertCurrency, assertMinor, toSafeNumber, type CurrencyCode } from "./currency";
 import { MoneyError } from "./errors";
-import { normalizeMemberIds, splitEven } from "./split";
+import { allocOptions, normalizeMemberIds, roundingOf, splitByWeights, splitEven, type Rounding } from "./split";
 import type { MemberId, Share, Split } from "./types";
 
 /**
@@ -159,17 +159,34 @@ export type UnclaimedPolicy =
   | "error"
   /** The payer covers every unclaimed item (FR-62 "absorb"). */
   | "absorb"
-  /** Split unclaimed items evenly among these people (DN-17 option A, not yet decided). */
+  /**
+   * One person carries every unclaimed item until someone claims it. Q16 (founder decision):
+   * the app passes the UPLOADER here and flags the items for the organizer.
+   */
+  | { assignTo: MemberId }
+  /** Split unclaimed items evenly among these people. */
   | { splitEvenlyAmong: readonly MemberId[] };
 
 /** How to handle a gap between the lines and the receipt total (E-6). */
 export type DifferencePolicy =
   /** Refuse to split while the receipt doesn't balance (default). */
   | "error"
-  /** One person takes the whole difference. */
+  /** One person takes the whole difference. Q17: the app passes the payer. */
   | { assignTo: MemberId }
   /** Split the difference evenly among these people. */
-  | { splitEvenlyAmong: readonly MemberId[] };
+  | { splitEvenlyAmong: readonly MemberId[] }
+  /** Split the difference by integer weights (Q17 with several payers: in proportion to what each paid). */
+  | { proportionalTo: readonly { memberId: MemberId; weight: number }[] };
+
+/**
+ * Q19 (founder decision): what happens to a guest of honor's items on an itemized receipt.
+ * - "sharers" (default): only the people who shared that item with them pick it up, by
+ *   their claim weights. An item only the guest of honor claimed has no sharers; it falls
+ *   back to "even" (reported in `gohFallbackItemIds`).
+ * - "even": their portion of each item is split evenly among everyone else on the receipt.
+ * - "proportional": spread over everyone else in proportion to their own item subtotals.
+ */
+export type GuestOfHonorItemPolicy = "sharers" | "even" | "proportional";
 
 export interface ItemizedSplitInput {
   totalMinor: number;
@@ -177,11 +194,20 @@ export interface ItemizedSplitInput {
   payerId: MemberId;
   items: readonly ReceiptItem[];
   charges?: readonly ReceiptCharge[];
-  /** FR-90: guests of honor pay nothing; their claimed items are spread over everyone else in proportion to their item subtotals. */
+  /** FR-90: guests of honor pay nothing; their items are covered per `guestOfHonorPolicy` (Q19). */
   guestOfHonorIds?: readonly MemberId[];
+  /** Q19. Default "sharers". */
+  guestOfHonorPolicy?: GuestOfHonorItemPolicy;
+  /**
+   * "Everyone else" for the "even" guest-of-honor policy (guests of honor are dropped from it).
+   * Default: every non-guest-of-honor claimant on the receipt.
+   */
+  everyoneElse?: readonly MemberId[];
   unclaimed?: UnclaimedPolicy;
   difference?: DifferencePolicy;
   tieBreakStart?: number;
+  /** Q18: who takes every leftover penny, in order of preference (the app passes [uploader, payer]). */
+  leftoverTo?: readonly MemberId[];
 }
 
 export interface ItemizedBreakdown {
@@ -198,9 +224,13 @@ export interface ItemizedBreakdown {
 export interface ItemizedSplit extends Split {
   breakdown: ItemizedBreakdown[];
   validation: ReceiptValidation;
-  /** Items that had no claims and were covered by the payer or split evenly. */
+  /** Items that had no claims and were covered by the payer, the assignee, or split evenly. */
   unclaimedItemIds: string[];
   excludedGuestOfHonorIds: MemberId[];
+  /** Q19: items only a guest of honor claimed, so "sharers" fell back to "even". */
+  gohFallbackItemIds: string[];
+  /** Q18: leftover pennies from the proportional pass (and the difference split) and who took them. */
+  rounding: Rounding;
 }
 
 /**
@@ -234,7 +264,7 @@ export function splitItemized(input: ItemizedSplitInput): ItemizedSplit {
   const unclaimedPolicy = input.unclaimed ?? "error";
 
   // Resolve each item's claimants.
-  const resolved: { amount: bigint; claims: { memberId: MemberId; weight: bigint }[] }[] = [];
+  const resolved: { id: string; amount: bigint; claims: { memberId: MemberId; weight: bigint }[] }[] = [];
   const unclaimedIds: string[] = [];
   const blocking: string[] = [];
   const itemIds = new Set<string>();
@@ -261,6 +291,10 @@ export function splitItemized(input: ItemizedSplitInput): ItemizedSplit {
     } else if (item.absorbed || unclaimedPolicy === "absorb") {
       unclaimedIds.push(item.id);
       claims = [{ memberId: input.payerId, weight: 1n }];
+    } else if (unclaimedPolicy !== "error" && "assignTo" in unclaimedPolicy) {
+      unclaimedIds.push(item.id);
+      normalizeMemberIds([unclaimedPolicy.assignTo], "unclaimed assignee");
+      claims = [{ memberId: unclaimedPolicy.assignTo, weight: 1n }];
     } else if (unclaimedPolicy !== "error") {
       unclaimedIds.push(item.id);
       const among = normalizeMemberIds(unclaimedPolicy.splitEvenlyAmong, "unclaimed split");
@@ -270,12 +304,37 @@ export function splitItemized(input: ItemizedSplitInput): ItemizedSplit {
       blocking.push(item.id);
       continue;
     }
-    resolved.push({ amount: BigInt(item.amountMinor), claims });
+    resolved.push({ id: item.id, amount: BigInt(item.amountMinor), claims });
   }
   if (blocking.length > 0) {
     throw new MoneyError("UNCLAIMED_ITEMS", "Some items haven't been claimed; assign them or have the payer absorb them", {
       itemIds: blocking,
     });
+  }
+
+  // Q19: move guests of honor's item portions to sharers / everyone else before weighting.
+  const gohPolicy = input.guestOfHonorPolicy ?? "sharers";
+  const gohFallback: string[] = [];
+  if (goh.size > 0 && gohPolicy !== "proportional") {
+    const poolSrc = input.everyoneElse ?? resolved.flatMap((r) => r.claims.map((c) => c.memberId));
+    const pool = [...new Set(poolSrc)].filter((m) => !goh.has(m)).sort(compareIds);
+    for (const r of resolved) {
+      const gw = r.claims.filter((c) => goh.has(c.memberId)).reduce((a, c) => a + c.weight, 0n);
+      if (gw === 0n) continue;
+      const others = r.claims.filter((c) => !goh.has(c.memberId));
+      if (gohPolicy === "sharers" && others.length > 0) {
+        r.claims = others;
+        continue;
+      }
+      if (pool.length === 0) continue; // nobody to spread over: falls through to "proportional"
+      if (gohPolicy === "sharers") gohFallback.push(r.id);
+      // Even: each of the k people in the pool gets gw/k of the item's weight; scale others by k.
+      const k = BigInt(pool.length);
+      const m = new Map<MemberId, bigint>();
+      for (const c of others) m.set(c.memberId, (m.get(c.memberId) ?? 0n) + c.weight * k);
+      for (const e of pool) m.set(e, (m.get(e) ?? 0n) + gw);
+      r.claims = [...m.keys()].sort(compareIds).map((memberId) => ({ memberId, weight: m.get(memberId)! }));
+    }
   }
 
   // Exact subtotals scaled by L = lcm of every item's total claim weight.
@@ -311,14 +370,21 @@ export function splitItemized(input: ItemizedSplitInput): ItemizedSplit {
     }
   }
 
-  const opts = input.tieBreakStart === undefined ? {} : { tieBreakStart: input.tieBreakStart };
+  const opts = allocOptions(payers, payerWeights, input);
+  const sub = {
+    ...(input.tieBreakStart === undefined ? {} : { tieBreakStart: input.tieBreakStart }),
+    ...(input.leftoverTo ? { leftoverTo: input.leftoverTo } : {}),
+  };
   const balancedPart = BigInt(validation.computedTotalMinor);
   const itemsTotal = BigInt(validation.itemsMinor);
   let baseParts: bigint[] = [];
   let itemParts: bigint[] = [];
+  let rounding: Rounding = { leftoverMinor: 0, memberId: null };
   if (payers.length > 0) {
-    baseParts = allocateBig(balancedPart, payerWeights, opts);
-    itemParts = allocateBig(itemsTotal, payerWeights, opts);
+    const base = allocateBigDetailed(balancedPart, payerWeights, opts);
+    baseParts = base.parts;
+    itemParts = allocateBigDetailed(itemsTotal, payerWeights, opts).parts;
+    rounding = roundingOf(base, payers);
   } else if (balancedPart !== 0n) {
     throw new MoneyError("ZERO_TOTAL_WEIGHT", "Nothing was claimed, so charges can't be split proportionally");
   }
@@ -338,15 +404,22 @@ export function splitItemized(input: ItemizedSplitInput): ItemizedSplit {
         throw new MoneyError("ALL_GUESTS_OF_HONOR", "The difference can't be assigned to a guest of honor");
       }
       diffShares = [{ memberId: differencePolicy.assignTo, shareMinor: D }];
+    } else if ("proportionalTo" in differencePolicy) {
+      const ws = differencePolicy.proportionalTo.filter((w) => !goh.has(w.memberId));
+      if (ws.length === 0) throw new MoneyError("ALL_GUESTS_OF_HONOR", "The difference can't go only to guests of honor");
+      const sp = splitByWeights({ totalMinor: D, currency: input.currency, weights: ws, ...sub });
+      diffShares = sp.shares;
+      rounding = mergeRounding(rounding, sp.rounding);
     } else {
       const ev = splitEven({
         totalMinor: D,
         currency: input.currency,
         participantIds: differencePolicy.splitEvenlyAmong,
         guestOfHonorIds: [...goh],
-        ...opts,
+        ...sub,
       });
       diffShares = ev.shares;
+      rounding = mergeRounding(rounding, ev.rounding);
       excludedGoh = [...new Set([...excludedGoh, ...ev.excludedGuestOfHonorIds])].sort(compareIds);
     }
     for (const s of diffShares) {
@@ -375,7 +448,13 @@ export function splitItemized(input: ItemizedSplitInput): ItemizedSplit {
     validation,
     unclaimedItemIds: unclaimedIds,
     excludedGuestOfHonorIds: excludedGoh,
+    gohFallbackItemIds: gohFallback,
+    rounding,
   };
+}
+
+function mergeRounding(a: Rounding, b: Rounding): Rounding {
+  return { leftoverMinor: a.leftoverMinor + b.leftoverMinor, memberId: a.memberId ?? b.memberId };
 }
 
 function gcd(a: bigint, b: bigint): bigint {

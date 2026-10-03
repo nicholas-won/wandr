@@ -41,6 +41,32 @@ function freeze<K extends string>(acc: Map<CurrencyCode, Map<K, bigint>>): PerCu
   return out;
 }
 
+/** The corrected state of a settled expense, recorded with each correction (FR-69). */
+export interface CorrectionSnapshot {
+  totalMinor: number;
+  shares: readonly Share[];
+}
+
+/**
+ * Q21 (founder decision 2026-10-02): corrections to settled expenses also update the spending
+ * reports. Returns the expense as reports should see it: the LATEST correction (corrections
+ * are given oldest first) replaces the total and the shares; category and currency stay.
+ */
+export function correctedForReport<E extends ReportExpense>(e: E, corrections: readonly CorrectionSnapshot[]): E {
+  const last = corrections[corrections.length - 1];
+  if (!last) return e;
+  assertMinor(last.totalMinor, "totalMinor");
+  let sum = 0n;
+  for (const s of last.shares) {
+    assertMinor(s.shareMinor, "shareMinor");
+    sum += BigInt(s.shareMinor);
+  }
+  if (sum !== BigInt(last.totalMinor)) {
+    throw new MoneyError("SHARES_DO_NOT_SUM", "Corrected shares do not sum to the corrected total");
+  }
+  return { ...e, totalMinor: last.totalMinor, shares: [...last.shares] };
+}
+
 /** Total per category, per currency. Refunds (negative totals) reduce their category. */
 export function categoryTotals(expenses: readonly ReportExpense[]): PerCurrency<ExpenseCategory> {
   const acc = new Map<CurrencyCode, Map<ExpenseCategory, bigint>>();

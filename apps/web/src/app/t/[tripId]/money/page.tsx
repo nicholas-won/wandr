@@ -5,10 +5,10 @@
  */
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { Download, PenLine, Receipt, Users, Wallet } from "lucide-react";
+import { Download, History, PenLine, Receipt, Users, Wallet } from "lucide-react";
 import { money } from "@wandr/core";
 import { SnapReceipt } from "@/components/money/snap-receipt";
-import { DisplayCurrency, RecordPayment } from "@/components/money/money-controls";
+import { DisplayCurrency, RecordPayment, ResolveDuplicate } from "@/components/money/money-controls";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,6 +50,60 @@ export default async function MoneyPage({ params }: PageProps<"/t/[tripId]/money
   }
 
   const attention = o.expenses.filter((e) => e.needsMyAttention);
+  const whoName = (n: string) => (n === "You" ? "you" : n);
+
+  // MT1: money updates live here, in the app, rather than in texts.
+  const activityCard =
+    o.activity.length === 0 ? null : (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <History className="size-4" aria-hidden /> What changed
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2 text-sm">
+            {o.activity.map((a) => {
+              const what =
+                a.kind === "payment"
+                  ? a.effectMinor !== null && a.effectMinor > 0
+                    ? `You paid ${a.otherName}`
+                    : `${a.otherName} paid you`
+                  : a.kind === "correction"
+                    ? `${a.actorName} corrected ${a.merchant}${a.reason ? ` (${a.reason})` : ""}`
+                    : a.kind === "edit"
+                      ? `${a.actorName} edited ${a.merchant}`
+                      : `${a.actorName} added ${a.merchant}`;
+              const amount =
+                a.kind === "payment"
+                  ? fmt(Math.abs(a.effectMinor ?? 0), a.currency)
+                  : a.kind === "correction"
+                    ? `${(a.effectMinor ?? 0) > 0 ? "+" : "−"}${fmt(Math.abs(a.effectMinor ?? 0), a.currency)}`
+                    : a.myShareMinor !== null
+                      ? `Your share ${fmt(a.myShareMinor, a.currency)}`
+                      : "";
+              const body = (
+                <span className="flex justify-between gap-3">
+                  <span className="min-w-0">{what}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">{amount}</span>
+                </span>
+              );
+              return (
+                <li key={a.key}>
+                  {a.expenseId ? (
+                    <Link href={`${base}/${a.expenseId}`} className="block hover:underline">
+                      {body}
+                    </Link>
+                  ) : (
+                    body
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </CardContent>
+      </Card>
+    );
 
   const balancesCard = solo ? null : (
     <Card>
@@ -145,6 +199,16 @@ export default async function MoneyPage({ params }: PageProps<"/t/[tripId]/money
           ) : o.currencies.length > 0 ? (
             <DisplayCurrency value={display} options={o.currencies} />
           ) : null}
+          {Object.keys(o.personalSpend).length ? (
+            <p className="flex justify-between border-t pt-3">
+              <span>Just for you (private)</span>
+              <span className="font-semibold tabular-nums">
+                {Object.entries(o.personalSpend)
+                  .map(([cur, v]) => fmt(v, cur))
+                  .join(" · ")}
+              </span>
+            </p>
+          ) : null}
           {!solo ? (
             <div className="space-y-1 border-t pt-3">
               <p className="font-semibold">Spend per person</p>
@@ -183,6 +247,38 @@ export default async function MoneyPage({ params }: PageProps<"/t/[tripId]/money
           </p>
         ) : null}
 
+        {o.organizer.unclaimed.length ? (
+          <p className="rounded-xl bg-secondary px-4 py-3 text-sm text-secondary-foreground" role="status">
+            Unclaimed items are on whoever added the receipt until someone claims them:{" "}
+            {o.organizer.unclaimed.map((u, i) => (
+              <span key={u.expenseId}>
+                {i ? ", " : ""}
+                <Link className="font-semibold underline" href={`${base}/${u.expenseId}`}>
+                  {u.merchant}
+                </Link>{" "}
+                ({u.count} on {whoName(u.uploaderName)})
+              </span>
+            ))}
+            .
+          </p>
+        ) : null}
+
+        {o.organizer.duplicates.map((p) => (
+          <div key={`${p.a.id}-${p.b.id}`} className="space-y-2 rounded-xl bg-secondary px-4 py-3 text-sm text-secondary-foreground" role="status">
+            <p>
+              These two receipts have nearly the same items. Same bill?{" "}
+              <Link className="font-semibold underline" href={`${base}/${p.a.id}`}>
+                {p.a.merchant} ({fmt(p.a.totalMinor, p.a.currency)}, {p.a.uploadedBy})
+              </Link>{" "}
+              and{" "}
+              <Link className="font-semibold underline" href={`${base}/${p.b.id}`}>
+                {p.b.merchant} ({fmt(p.b.totalMinor, p.b.currency)}, {p.b.uploadedBy})
+              </Link>
+            </p>
+            <ResolveDuplicate tripId={tripId} a={p.a} b={p.b} />
+          </div>
+        ))}
+
         {reviews.length ? (
           <p className="rounded-xl bg-secondary px-4 py-3 text-sm text-secondary-foreground" role="status">
             {reviews.map((r) => `${r.name} ${r.kind === "late_join" ? "joined after" : "dropped out of"} ${r.pending} shared ${r.pending === 1 ? "expense" : "expenses"}`).join(" · ")}.{" "}
@@ -208,18 +304,21 @@ export default async function MoneyPage({ params }: PageProps<"/t/[tripId]/money
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{e.merchant}</span>
                     <span className="block text-xs text-muted-foreground">
-                      {solo ? CATEGORY_LABEL[e.category] : `${e.payerName} paid`}
+                      {solo || e.personal ? CATEGORY_LABEL[e.category] : `${e.payerName} paid`}
                       {e.spentOn ? ` · ${e.spentOn}` : ""}
                     </span>
                     <span className="mt-1 flex flex-wrap gap-1">
                       {e.locked ? <Badge>Settled</Badge> : null}
                       {e.isRefund ? <Badge variant="secondary">Refund</Badge> : null}
                       {e.pendingClaims ? <Badge variant="accent">{e.pendingClaims} to claim</Badge> : null}
+                      {e.personal ? <Badge variant="outline">Just you</Badge> : null}
+                      {e.unreadable ? <Badge variant="outline">Check receipt</Badge> : null}
+                      {e.payerCount > 1 ? <Badge variant="outline">{e.payerCount} paid</Badge> : null}
                     </span>
                   </span>
                   <span className="text-right">
                     <span className="block font-semibold tabular-nums">{fmt(e.totalMinor, e.currency)}</span>
-                    {!solo ? (
+                    {!solo && !e.personal ? (
                       <span className="block text-xs text-muted-foreground tabular-nums">
                         {e.myShareMinor ? `Your share ${fmt(e.myShareMinor, e.currency)}` : "Not in it"}
                       </span>
@@ -230,6 +329,8 @@ export default async function MoneyPage({ params }: PageProps<"/t/[tripId]/money
             ))}
           </ul>
         )}
+
+        <div className="lg:hidden">{activityCard}</div>
 
         <div className="lg:hidden">{breakdownCard}</div>
 
@@ -255,6 +356,7 @@ export default async function MoneyPage({ params }: PageProps<"/t/[tripId]/money
       <aside className="hidden lg:block">
         <div className="sticky top-8 space-y-4">
           {balancesCard}
+          {activityCard}
           {breakdownCard}
         </div>
       </aside>
