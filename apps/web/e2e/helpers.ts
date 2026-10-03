@@ -8,7 +8,8 @@ export async function signUp(page: Page, phone: string, name: string) {
   await expect(page).toHaveURL(/\/signin/);
   await page.getByLabel("Mobile number").fill(phone);
   await page.getByRole("button", { name: "Text me a code" }).click();
-  await expect(page.getByText(/Test mode/)).toBeVisible();
+  // The first sign-in of a run waits on a cold dev compile.
+  await expect(page.getByText(/Test mode/)).toBeVisible({ timeout: 30_000 });
   await page.getByLabel("6-digit code").fill("000000");
   const nameField = page.getByLabel("Your name");
   await expect(nameField.or(page.getByRole("navigation", { name: "App" }))).toBeVisible({ timeout: 30_000 });

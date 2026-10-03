@@ -29,7 +29,7 @@ test("screenshot idea, then fix it by hand when place search isn't connected", a
   await card.getByRole("button", { name: "Fix" }).click();
   await expect(card.getByText(/Place search isn.t connected/)).toBeVisible();
   await card.getByLabel("Name").fill("Pastéis de Belém");
-  await card.getByRole("button", { name: "Save" }).click();
+  await card.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Pastéis de Belém" })).toBeVisible();
   await expect(page.getByText("Is this the right place?")).toHaveCount(0);
 
