@@ -24,7 +24,8 @@ import type { ActionResult } from "../actions";
 const MESSAGES: Record<MembershipError["code"], string> = {
   not_allowed: "Only organizers can do that.",
   not_found: "That person isn't here any more.",
-  owner_cannot_leave: "Hand the trip to someone else first.",
+  owner_cannot_leave: "Hand the trip to someone else first, or delete the trip in Settings.",
+  confirmation_mismatch: "Type the trip name exactly to confirm.",
   resolve_balance_first: "Settle their balance first.",
   bad_target: "Pick someone else.",
   no_anchor_expense: "Their balance can't be moved automatically. Record a payment instead.",

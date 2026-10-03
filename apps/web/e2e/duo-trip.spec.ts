@@ -13,7 +13,7 @@ async function startTrip(page: Page) {
   await form.locator('input[name="destinations"]').fill("Lisbon");
   await form.locator('input[name="name"]').fill("Nick & Sam");
   await form.getByRole("button", { name: "Create trip" }).click();
-  await expect(page.getByRole("heading", { name: "Nick & Sam" }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Nick & Sam" }).first()).toBeVisible({ timeout: 30_000 }); // first compile of the trip page on a cold dev server
 }
 
 test("duo trip: idea, invite, personal link, open votes", async ({ page, browser }, info) => {
@@ -65,8 +65,16 @@ test("duo trip: idea, invite, personal link, open votes", async ({ page, browser
   const samPage = await sam.newPage();
   const linkPath = new URL(personalLink!).pathname;
   await samPage.goto(linkPath);
-  const open = samPage.getByRole("button", { name: "Open my trip" });
-  if (await open.isVisible().catch(() => false)) await open.click();
+  // Automated browsers don't auto-open (scanner protection), so tap the fallback button.
+  await samPage.getByRole("button", { name: "Open my trip" }).click();
+  // Q37/D67: opening never joins. Sam sees the trip, types their own name, accepts explicitly,
+  // and can skip confirming a number (view + vote only).
+  await expect(samPage.getByRole("heading", { name: "Nick & Sam" })).toBeVisible();
+  await expect(samPage.getByText("With Nick")).toBeVisible();
+  await expect(samPage.getByLabel("What's your name?")).toHaveValue("Sam");
+  await samPage.getByRole("button", { name: "Accept invitation" }).click();
+  await expect(samPage.getByRole("heading", { name: "Confirm your number" })).toBeVisible();
+  await samPage.getByRole("button", { name: "Skip for now" }).click();
   await expect(samPage.getByRole("heading", { name: /Pastéis de Belém/ })).toBeVisible();
   await samPage.getByRole("button", { name: /Down/ }).first().click();
   // Duo: votes are open from the start (§6.10).

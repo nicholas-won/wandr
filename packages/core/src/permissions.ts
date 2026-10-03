@@ -31,6 +31,8 @@ export const ACTIONS = [
   "remove_member",
   "change_role",
   "transfer_ownership",
+  /** JR3: owner only; soft-deletes the trip for everyone (money history kept, NFR-5/NFR-7). */
+  "delete_trip",
   "change_settings",
   "view_money",
   "add_expense",
@@ -56,7 +58,16 @@ export interface PermissionContext {
    * The member acted on: vote/set_attendance on behalf of someone (managed members, FR-11/V-14),
    * remove_member, change_role, transfer_ownership.
    */
-  target?: { memberId: MemberId; role: MemberRole; managedByMemberId?: MemberId | null };
+  target?: {
+    memberId: MemberId;
+    role: MemberRole;
+    managedByMemberId?: MemberId | null;
+    /**
+     * For a managed member: is their manager still active? `false` once the manager left or was
+     * removed; organizers then act for them (JR11). Omitted = active.
+     */
+    managerActive?: boolean;
+  };
   /** FR-9: removing a member with an open balance requires resolving it first. */
   targetHasOpenBalance?: boolean;
   /** edit_expense (FR-68/69). */
@@ -105,11 +116,27 @@ const ORGANIZER_ACTIONS: ReadonlySet<Action> = new Set<Action>([
 
 const isOrganizer = (role: MemberRole) => role === "owner" || role === "organizer";
 
-/** Acting on behalf of `target`: yourself, or a managed member you manage (FR-11, V-14). */
+/**
+ * Acting on behalf of `target`: yourself, a managed member you manage (FR-11, V-14), or, as an
+ * organizer, a managed member whose manager is no longer active (JR11).
+ */
 function actsFor(actor: Actor, ctx: PermissionContext | undefined): boolean {
   const t = ctx?.target;
   if (!t) return true; // defaults to self
-  return t.memberId === actor.memberId || t.managedByMemberId === actor.memberId;
+  if (t.memberId === actor.memberId || t.managedByMemberId === actor.memberId) return true;
+  return !!t.managedByMemberId && t.managerActive === false && isOrganizer(actor.role);
+}
+
+/**
+ * JR11: who acts for a managed member. Their manager while active; otherwise the trip's
+ * organizers. Pure helper for the UI and server checks.
+ */
+export function managedMemberActors(m: {
+  managedByMemberId: MemberId | null;
+  managerActive: boolean;
+}): "manager" | "organizers" | null {
+  if (!m.managedByMemberId) return null;
+  return m.managerActive ? "manager" : "organizers";
 }
 
 /** §6.10: features hidden at a given size. */
@@ -173,8 +200,14 @@ function roleCheck(actor: Actor, action: Action, ctx: PermissionContext | undefi
 
   switch (action) {
     case "vote":
-    case "set_attendance":
       return actsFor(actor, ctx) ? ALLOW : deny("not_your_member");
+
+    case "set_attendance":
+      // Q13: organizers can set attendance for anyone; others for themselves / their managed members.
+      return actsFor(actor, ctx) || isOrganizer(actor.role) ? ALLOW : deny("not_your_member");
+
+    case "delete_trip":
+      return actor.role === "owner" ? ALLOW : deny("owner_only");
 
     case "remove_member": {
       const t = ctx?.target;

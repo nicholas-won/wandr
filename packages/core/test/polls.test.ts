@@ -3,6 +3,7 @@ import {
   closesLabel,
   extendDeadline,
   isPollOpen,
+  isSplitDecision,
   meetsTurnout,
   msUntilClose,
   pollOutcome,
@@ -23,6 +24,28 @@ describe("meetsTurnout (FR-48)", () => {
     [1, 2, true],
     [1, 1, true],
   ])("%i of %i → %s", (voted, eligible, ok) => expect(meetsTurnout(voted, eligible)).toBe(ok));
+});
+
+describe("isSplitDecision (Q15)", () => {
+  const four = ["m1", "m2", "m3", "m4"];
+  it("a 50/50 at exactly 50% turnout is a split decision for the organizer", () => {
+    const out = pollOutcome({ size: "group", optionIds: ["A", "B"], ballots: [b("m1", "A"), b("m2", "B")], eligibleVoterIds: four });
+    expect(out).toMatchObject({ kind: "needs_organizer", reason: "tie" });
+    expect(isSplitDecision(out)).toBe(true);
+  });
+  it("any tie for first is split; a winner or low turnout isn't", () => {
+    const tie3 = pollOutcome({
+      size: "group",
+      optionIds: ["A", "B", "C"],
+      ballots: [b("m1", "A"), b("m2", "B"), b("m3", "C")],
+      eligibleVoterIds: four,
+    });
+    expect(isSplitDecision(tie3)).toBe(true);
+    const win = pollOutcome({ size: "group", optionIds: ["A", "B"], ballots: [b("m1", "A"), b("m2", "A")], eligibleVoterIds: four });
+    expect(isSplitDecision(win)).toBe(false);
+    const low = pollOutcome({ size: "group", optionIds: ["A", "B"], ballots: [b("m1", "A")], eligibleVoterIds: four });
+    expect(isSplitDecision(low)).toBe(false);
+  });
 });
 
 describe("pollOutcome (FR-47/48, FR-T7)", () => {

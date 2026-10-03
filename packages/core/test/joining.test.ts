@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canRestore,
   decideGroupJoin,
+  isGroupLinkPaused,
   isPendingExpired,
   JOIN_LIMITS,
   lastSizeTransition,
@@ -21,7 +22,6 @@ const base: GroupJoinInput = {
   existing: null,
   invitedMatch: null,
   openPending: 0,
-  recentRequests: { hour: 0, day: 0 },
 };
 
 describe("decideGroupJoin (FR-6/7, J-7/8/9)", () => {
@@ -50,16 +50,19 @@ describe("decideGroupJoin (FR-6/7, J-7/8/9)", () => {
     expect(decideGroupJoin({ ...base, linkActive: false, existing: { status: "active" } }).kind).toBe("already_member");
     expect(decideGroupJoin({ ...base, linkActive: false }).kind).toBe("link_off");
   });
-  it("rate limits and the pending cap", () => {
-    expect(decideGroupJoin({ ...base, recentRequests: { hour: JOIN_LIMITS.requestsPerTripHour, day: 0 } }).kind).toBe(
-      "limited",
-    );
-    expect(decideGroupJoin({ ...base, recentRequests: { hour: 0, day: JOIN_LIMITS.requestsPerTripDay } }).kind).toBe(
-      "limited",
-    );
+  it("only the open-request cap pauses the link; no hourly/daily limits (JR6)", () => {
+    expect(JOIN_LIMITS).not.toHaveProperty("requestsPerTripHour");
+    expect(JOIN_LIMITS).not.toHaveProperty("requestsPerTripDay");
+    expect(decideGroupJoin({ ...base, openPending: JOIN_LIMITS.pendingCap - 1 }).kind).toBe("request");
     expect(decideGroupJoin({ ...base, openPending: JOIN_LIMITS.pendingCap }).kind).toBe("link_off");
     expect(shouldPauseAfterRequest(19)).toBe(false);
     expect(shouldPauseAfterRequest(20)).toBe(true);
+    expect(shouldPauseAfterRequest(21)).toBe(false); // recorded once, when the cap is reached
+  });
+  it("the link turns back on by itself once requests drop below the cap (JR5)", () => {
+    expect(isGroupLinkPaused(JOIN_LIMITS.pendingCap)).toBe(true);
+    expect(isGroupLinkPaused(JOIN_LIMITS.pendingCap - 1)).toBe(false);
+    expect(isGroupLinkPaused(0)).toBe(false);
   });
 });
 

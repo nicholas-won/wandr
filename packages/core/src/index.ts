@@ -5,6 +5,8 @@ export * from "./voting";
 export * from "./polls";
 export * from "./permissions";
 export * from "./joining";
+export * from "./link-onboarding";
+export * from "./trip-deletion";
 export * from "./stages";
 export * from "./stops";
 export * from "./budget";

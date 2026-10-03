@@ -23,6 +23,7 @@ import {
   undoStageMove,
   updateStop,
   type MoveStageResult,
+  type RemoveStopResult,
   type UpdateStopResult,
 } from "@/server/planning";
 
@@ -35,7 +36,7 @@ const MESSAGES: Record<string, string> = {
   invalid: "That doesn't look right.",
   name_required: "Give it a name.",
   first_stop_name_required: "Name your first stop too.",
-  has_dependents: "This Stop has polls, plan items or expenses. Move or close those first.",
+  not_allowed: "You can only change that for yourself or someone you manage.",
   last_stop: "A trip needs at least one Stop.",
   vote_first: "Vote first.",
 };
@@ -55,7 +56,7 @@ async function ctx(tripId: string) {
 }
 
 const stage = z.enum(["where", "when", "stay", "getting_around", "do"]);
-const stageAction = z.enum(["start_voting", "set", "mark_not_needed", "reopen", "restore"]);
+const stageAction = z.enum(["start_voting", "back_to_collecting", "set", "mark_not_needed", "reopen", "restore"]);
 const stageStatus = z.enum(["collecting", "voting", "set", "not_needed"]);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable();
 
@@ -160,18 +161,26 @@ export async function moveStopAction(tripId: string, stopId: string, dir: -1 | 1
   }
 }
 
-export async function removeStopAction(tripId: string, stopId: string): Promise<ActionResult> {
+/**
+ * S-5 / ST5: remove a city. Returns a preview (polls that close, plan items removed, expenses
+ * unlinked) when there's more than ideas to move; call again with `confirmed` to apply.
+ */
+export async function removeStopAction(
+  tripId: string,
+  stopId: string,
+  confirmed = false,
+): Promise<{ ok: true; result: RemoveStopResult } | { ok: false; error: string; signin?: string }> {
   try {
     const { db, claims } = await ctx(tripId);
-    await removeStop(db, claims, { stopId: z.uuid().parse(stopId) });
-    refresh();
-    return { ok: true };
+    const result = await removeStop(db, claims, { stopId: z.uuid().parse(stopId), confirmed });
+    if (result.ok) refresh();
+    return { ok: true, result };
   } catch (e) {
     return failure(e, tripId);
   }
 }
 
-/** FR-S7: your own attendance. null = back to "assumed". */
+/** FR-S7: your own attendance, a managed member's, or (organizers, Q13) anyone's. null = back to "assumed". */
 export async function setAttendanceAction(
   tripId: string,
   stopId: string,

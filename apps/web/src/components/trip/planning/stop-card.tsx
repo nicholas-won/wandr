@@ -17,7 +17,7 @@ import {
   setAttendanceAction,
   updateStopAction,
 } from "@/app/t/[tripId]/stops/actions";
-import type { StopView, UpdateStopResult } from "@/server/planning";
+import type { StopRemovalPreview, StopView, UpdateStopResult } from "@/server/planning";
 
 type Choices = Extract<UpdateStopResult, { reason: "needs_choices" }>;
 
@@ -54,6 +54,8 @@ export function StopCard({
   const [editing, setEditing] = useState(false);
   const [choices, setChoices] = useState<{ ask: Choices; input: Parameters<typeof updateStopAction>[1] } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removalPreview, setRemovalPreview] = useState<StopRemovalPreview | null>(null);
+  const [settingOthers, setSettingOthers] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
 
@@ -67,6 +69,22 @@ export function StopCard({
       toast({
         title: next === false ? `Not going to ${stop.name || "this Stop"}` : `You're in for ${stop.name || "this Stop"}`,
         action: { label: "Undo", onClick: () => start(async () => void (await setAttendanceAction(tripId, stop.id, meId, prev))) },
+      });
+    });
+  }
+
+  /** Q13: an organizer marks someone else's attendance. */
+  function setFor(memberId: string, name: string, next: boolean | null) {
+    start(async () => {
+      const r = await setAttendanceAction(tripId, stop.id, memberId, next);
+      if (!r.ok) return fail(r);
+      toast({
+        title:
+          next === null
+            ? `${name}: not confirmed`
+            : next
+              ? `${name} is going to ${stop.name || "this Stop"}`
+              : `${name} isn't going to ${stop.name || "this Stop"}`,
       });
     });
   }
@@ -207,6 +225,43 @@ export function StopCard({
             </AttendBtn>
           </div>
         ) : null}
+        {/* Q13: organizers can set attendance for other members. */}
+        {isOrganizer && canMarkAttendance && stop.attendees.some((a) => a.memberId !== meId) ? (
+          settingOthers ? (
+            <ul className="mt-3 space-y-2 border-t pt-3" aria-label="Set who's going">
+              {stop.attendees
+                .filter((a) => a.memberId !== meId)
+                .map((a) => (
+                  <li key={a.memberId} className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm">{a.name}</span>
+                    <ChoiceBtn
+                      on={a.state === "yes"}
+                      disabled={busy}
+                      onClick={() => setFor(a.memberId, a.name, a.state === "yes" ? null : true)}
+                    >
+                      Going
+                    </ChoiceBtn>
+                    <ChoiceBtn
+                      on={a.state === "no"}
+                      disabled={busy}
+                      onClick={() => setFor(a.memberId, a.name, a.state === "no" ? null : false)}
+                    >
+                      Not going
+                    </ChoiceBtn>
+                  </li>
+                ))}
+              <li>
+                <Button variant="link" size="sm" onClick={() => setSettingOthers(false)}>
+                  Done
+                </Button>
+              </li>
+            </ul>
+          ) : (
+            <Button variant="link" size="sm" className="mt-1" onClick={() => setSettingOthers(true)}>
+              Set for others
+            </Button>
+          )
+        ) : null}
       </div>
 
       <Dialog
@@ -231,12 +286,23 @@ export function StopCard({
 
       <Dialog
         open={confirmRemove}
-        onOpenChange={setConfirmRemove}
+        onOpenChange={(o) => {
+          setConfirmRemove(o);
+          if (!o) setRemovalPreview(null);
+        }}
         title={`Remove ${stop.name || "this Stop"}?`}
         description={`Its ${stop.ideaCount} ${stop.ideaCount === 1 ? "idea goes" : "ideas go"} to Unsorted with their votes. Attendance for it is cleared.`}
       >
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setConfirmRemove(false)}>
+        {/* ST5: show what else happens before the organizer confirms. */}
+        {removalPreview ? <RemovalPreviewList preview={removalPreview} /> : null}
+        <div className="mt-4 flex justify-end gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setConfirmRemove(false);
+              setRemovalPreview(null);
+            }}
+          >
             Keep it
           </Button>
           <Button
@@ -244,13 +310,19 @@ export function StopCard({
             loading={busy}
             onClick={() =>
               start(async () => {
-                const r = await removeStopAction(tripId, stop.id);
+                const r = await removeStopAction(tripId, stop.id, !!removalPreview);
+                if (!r.ok) {
+                  setConfirmRemove(false);
+                  return fail(r);
+                }
+                if (!r.result.ok) return setRemovalPreview(r.result.preview);
                 setConfirmRemove(false);
-                if (!r.ok) fail(r);
+                setRemovalPreview(null);
+                toast({ title: `Removed ${stop.name || "the Stop"}` });
               })
             }
           >
-            Remove
+            {removalPreview ? "Remove anyway" : "Remove"}
           </Button>
         </div>
       </Dialog>
@@ -258,7 +330,7 @@ export function StopCard({
   );
 }
 
-/** FR-S10: per item, shift with the Stop or unschedule ("needs a day"); per poll, shift or pause. */
+/** FR-S10: per item, shift with the Stop or unschedule ("needs a day"). Polls are left alone (ST2). */
 function DateChoices({
   ask,
   busy,
@@ -273,16 +345,13 @@ function DateChoices({
   const [c, setC] = useState<Record<string, "shift" | "unschedule">>(() =>
     Object.fromEntries(ask.planItems.filter((i) => !i.canShift).map((i) => [i.id, "unschedule" as const])),
   );
-  const rows = [
-    ...ask.planItems.map((i) => ({
-      id: i.id,
-      title: `${i.title} (Day ${i.dayIndex + 1})`,
-      canShift: i.canShift,
-      shift: "Keep on Day " + (i.dayIndex + 1),
-      other: "Needs a day",
-    })),
-    ...ask.polls.map((p) => ({ id: p.id, title: `Poll: ${p.question}`, canShift: true, shift: "Move deadline too", other: "Pause poll" })),
-  ];
+  const rows = ask.planItems.map((i) => ({
+    id: i.id,
+    title: `${i.title} (Day ${i.dayIndex + 1})`,
+    canShift: i.canShift,
+    shift: "Keep on Day " + (i.dayIndex + 1),
+    other: "Needs a day",
+  }));
   const complete = rows.every((r) => c[r.id]);
   return (
     <div className="space-y-3">
@@ -312,6 +381,36 @@ function DateChoices({
         </Button>
       </div>
     </div>
+  );
+}
+
+/** ST5: what removing the city does beyond moving its ideas. */
+function RemovalPreviewList({ preview }: { preview: StopRemovalPreview }) {
+  const lines: string[] = [];
+  if (preview.pollsToClose.length) {
+    lines.push(
+      `${preview.pollsToClose.length === 1 ? "This poll closes" : `${preview.pollsToClose.length} polls close`}: ${preview.pollsToClose
+        .map((p) => p.question)
+        .join(", ")}`,
+    );
+  }
+  if (preview.otherPolls) lines.push(`${preview.otherPolls} finished ${preview.otherPolls === 1 ? "poll stays" : "polls stay"}, no longer tied to this city`);
+  if (preview.planItems.length) {
+    lines.push(
+      `${preview.planItems.length === 1 ? "This planned item is" : `${preview.planItems.length} planned items are`} removed: ${preview.planItems
+        .map((p) => p.title)
+        .join(", ")}`,
+    );
+  }
+  if (preview.expenses) {
+    lines.push(`${preview.expenses} ${preview.expenses === 1 ? "expense stays" : "expenses stay"} in Money, just not tied to this city`);
+  }
+  return (
+    <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+      {lines.map((l) => (
+        <li key={l}>{l}</li>
+      ))}
+    </ul>
   );
 }
 

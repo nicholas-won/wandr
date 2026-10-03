@@ -298,7 +298,18 @@ export function LeaveTrip({ tripId, memberId, isOwner }: { tripId: string; membe
       </Button>
       <Sheet open={open} onOpenChange={setOpen} title="Leave this trip?">
         {isOwner ? (
-          <p className="text-sm text-muted-foreground">You own this trip. Hand it to someone else in Settings first.</p>
+          <div className="space-y-3">
+            {/* JR3: the owner transfers ownership first, or deletes the whole trip. */}
+            <p className="text-sm text-muted-foreground">
+              You own this trip. To leave, hand it to someone else first. Or, if the trip is off, delete it for everyone.
+            </p>
+            <a
+              href={`/t/${tripId}/settings#ownership`}
+              className="inline-flex text-sm font-semibold text-primary underline-offset-4 hover:underline"
+            >
+              Go to ownership settings
+            </a>
+          </div>
         ) : (
           <div className="space-y-4">
             {balances && balances.length > 0 ? (

@@ -10,6 +10,8 @@ export const COOKIE = {
   boards: "w_brd",
   /** Pending code challenge. */
   otp: "w_otp",
+  /** Q1: when this device last dismissed "Confirm your number" (epoch ms). */
+  phonePrompt: "w_ppd",
 } as const;
 
 export function cookieOptions(maxAgeSeconds: number) {

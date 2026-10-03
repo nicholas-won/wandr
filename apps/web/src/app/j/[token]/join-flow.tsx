@@ -18,8 +18,7 @@ const RESULT_COPY: Record<JoinResult, { title: string; body: string }> = {
   },
   already_pending: { title: "Waiting for approval", body: "Your request is with the organizers." },
   ask_organizer: { title: "Ask the organizer to add you", body: "This trip only lets in people the organizers added." },
-  link_off: { title: "This link is paused", body: "Ask the person who shared it for a new link." },
-  limited: { title: "Lots of requests right now", body: "Try again in a little while." },
+  link_off: { title: "This link is paused", body: "Try again later, or ask the person who shared it for a new link." },
   recheck: { title: "Let's double-check it's you", body: "Sign in again to continue." },
 };
 
