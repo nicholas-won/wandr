@@ -88,6 +88,26 @@ describe("checkPlan live hints (FR-O6)", () => {
     expect(checkPlan(plan, items, stop(), { pace: "balanced" }).filter((x) => x.code === "packed_day")).toEqual([]);
   });
 
+  it("flags a day that reaches the pace limit (D70: FR-O6's '3 activities and 2 meals')", () => {
+    const full: PlanLike = {
+      days: [
+        {
+          dayIndex: 0,
+          items: [
+            { itemId: "museum", startMinute: 600, durationMinutes: 60 },
+            { itemId: "castle", startMinute: 700, durationMinutes: 60 },
+            { itemId: "tower", startMinute: 800, durationMinutes: 60 },
+            { itemId: "late", startMinute: 1200, durationMinutes: 60 },
+            { itemId: "lunch", startMinute: 750, durationMinutes: 60 },
+          ],
+        },
+      ],
+    };
+    const withLunch = [...items, item("lunch", { ...near(ALFAMA, 4), category: "food" })];
+    const ws = checkPlan(full, withLunch, stop(), { pace: "balanced" }).filter((x) => x.code === "packed_day");
+    expect(ws).toEqual([expect.objectContaining({ detail: "3 activities and 2 meals; that's a packed day" })]);
+  });
+
   it("flags overlaps with arrival and departure", () => {
     const plan: PlanLike = {
       days: [

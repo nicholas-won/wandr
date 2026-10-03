@@ -1,6 +1,6 @@
 # Wandr (working name): group trip planning app
 
-A group trip "inbox": friends share TikToks, IG posts, links or screenshots into a trip. AI resolves each one to a real place and files it under the right city (Stop). The group votes blind (Must-do / Down / Pass) and organizers lock decisions in stages. Receipts get split, and friends can take part fully from texts with no app download (Partiful-style). The hero moment is **"Drop a TikTok, get a vote."** Between trips, the same capture powers a personal **idea library** (§6.12): save travel ideas with no trip, auto-sorted by place, one tap to start a trip. It's the weekly-use habit behind a ReciMe-style freemium subscription (D60–D61).
+A group trip "inbox": friends share TikToks, IG posts, links or screenshots into a trip. AI resolves each one to a real place and files it under the right city (Stop). The group votes blind (Must-do / Down / Pass) and organizers lock decisions in stages. Receipts get split, and friends join from a personal link in a text and take part in the browser with no app download (Partiful-style). The hero moment is **"Drop a TikTok, get a vote."** Between trips, the same capture powers a personal **idea library** (§6.12): save travel ideas with no trip, auto-sorted by place, one tap to start a trip. It's the weekly-use habit behind a ReciMe-style freemium subscription (D60–D61).
 
 The name is a placeholder; don't hard-code it in many places. Keep it in one config constant.
 
@@ -24,7 +24,7 @@ Build only what §7 lists for Phase 1. **Not in the POC:**
 
 ### Desktop vs phone (D64)
 - **Desktop** is a planning workspace: landing page with calls to action for visitors, classic setup (destinations + dates) first, sidebar trip shell, wide multi-column views.
-- **Phone** is capture-first: paste a link, vote from a text. Keep phone layouts single-column.
+- **Phone** is capture-first: paste a link, vote from the link in an invite text. Keep phone layouts single-column.
 - Register trip sections in `apps/web/src/components/trip/sections.ts`, not in the layout.
 
 ### Build order (vertical slices; each one deployable)
@@ -34,7 +34,7 @@ Build only what §7 lists for Phase 1. **Not in the POC:**
 3. **Joining and roles:** SMS codes, group link plus approval, owner and organizers, removal (FR-1–17).
 4. **Stages, Stops and attendance** (§6.0), organizer polls with deadlines (FR-47–48), custom polls.
 5. **Expenses:** receipts, even/itemized splits, balances per currency, adjustments (§6.5).
-6. **Messaging:** Twilio texts, two-way replies, group-chat share cards, digests, throttling (§6.6).
+6. **Messaging:** minimal texts (codes + invites only, D65), group-chat share cards, in-app "What's new" and money activity (§6.6).
 7. **Plan optimizer, "Arrange my days"** (§6.11): a deterministic scheduling engine in `packages/core`; Claude only writes the explanations.
 8. **Bachelor/bachelorette mode:** guest of honor, surprise mode (§6.7).
 9. **Instrumentation:** commercial-intent and spend tracking (§11, §12).
@@ -69,11 +69,10 @@ All nine slices plus 2b have a first version on `feat/foundation`, with unit, RL
 - **Treat fetched links and captions as untrusted:**
   - Protect the fetcher against SSRF (C-20).
   - Treat caption text as data, never as instructions to the AI (prompt injection, C-21).
-- **Texting:**
-  - Throttle to about 1 text per person per day, about 10–12 per trip (FR-84).
-  - Honor STOP and informal opt-outs.
-  - Send sign-in codes from a separate number.
-  - Never put marketing in texts.
+- **Texting (D65):**
+  - Texts are only sign-in codes (from a separate number) and the personal invite link. Never put the trip's name, marketing or money in a text.
+  - Everything else (approvals, votes, reminders, money, digests) happens in the app or through group-chat share cards.
+  - Inbound texts: honor STOP, HELP and WRONG (and informal opt-outs); nothing else is processed.
 - **Personal links** allow view and vote only. Money, approvals and settings require an SMS code (FR-5).
 
 ## Tech stack (details in REQUIREMENTS.md §7a)

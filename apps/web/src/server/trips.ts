@@ -19,7 +19,9 @@ import {
 } from "@wandr/db";
 import { ideaReveals } from "@wandr/db/reveals";
 import { tripSize, type TripSize, type VoteValue } from "@wandr/core";
+import { placePhotosEnabled } from "@/lib/idea-visual";
 import { buildIdeaCards, type IdeaCard } from "./cards";
+import { commentCountsIn } from "./comments";
 
 /** Placeholder until the first idea suggests a name (FR-1a "Start a trip around this?"). */
 export const DEFAULT_TRIP_NAME = "New trip";
@@ -153,6 +155,7 @@ export async function getTripView(db: Db, claims: Claims, tripId: string): Promi
       .where(and(eq(votes.tripId, tripId), eq(votes.memberId, me.id)));
     const reveals = await ideaReveals(tx, tripId);
     const anyExpense = await tx.select({ id: expenses.id }).from(expenses).where(eq(expenses.tripId, tripId)).limit(1);
+    const commentCounts = await commentCountsIn(tx, ids);
 
     return {
       trip: { id: trip.id, name: trip.name, size, bachMode: trip.bachMode },
@@ -179,6 +182,9 @@ export async function getTripView(db: Db, claims: Claims, tripId: string): Promi
         reveals,
         myVotes: new Map(myVoteRows.map((v) => [v.ideaId, v.value as VoteValue])),
         memberNames: new Map(memberRows.map((m) => [m.id, m.displayName])),
+        stopNames: new Map(stopRows.map((s) => [s.id, s.name])),
+        commentCounts,
+        photosEnabled: placePhotosEnabled(),
       }),
     };
   });

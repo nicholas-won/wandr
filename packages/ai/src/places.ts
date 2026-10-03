@@ -8,24 +8,58 @@
 import type { GeoPoint } from "./intake";
 import type { StopContext } from "./extract";
 
-export const PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
+export const PLACES_BASE_URL = "https://places.googleapis.com/v1";
+export const PLACES_SEARCH_URL = `${PLACES_BASE_URL}/places:searchText`;
 
-const FIELD_MASK = [
-  "places.id",
-  "places.displayName",
-  "places.formattedAddress",
-  "places.location",
-  "places.businessStatus",
-  "places.priceLevel",
-  "places.rating",
-  "places.userRatingCount",
-  "places.primaryType",
-  "places.types",
-  "places.googleMapsUri",
-  "places.websiteUri",
-  "places.movedPlaceId",
-  "places.addressComponents",
-].join(",");
+/** Place fields we request. Text Search prefixes each with `places.`; Place Details doesn't. */
+const PLACE_FIELDS = [
+  "id",
+  "displayName",
+  "formattedAddress",
+  "location",
+  "businessStatus",
+  "priceLevel",
+  "rating",
+  "userRatingCount",
+  "primaryType",
+  "types",
+  "googleMapsUri",
+  "websiteUri",
+  "movedPlaceId",
+  "addressComponents",
+  // Only the first photo's resource name + attributions are kept (display cache, never bytes).
+  "photos",
+];
+export const SEARCH_FIELD_MASK = PLACE_FIELDS.map((f) => `places.${f}`).join(",");
+export const DETAILS_FIELD_MASK = PLACE_FIELDS.join(",");
+
+/** Google place ids are URL-safe tokens. */
+const PLACE_ID_RE = /^[A-Za-z0-9_-]{10,300}$/;
+/** `places/{placeId}/photos/{photoRef}`: validated before it is put into a URL path. */
+const PHOTO_NAME_RE = /^places\/[A-Za-z0-9_-]{10,300}\/photos\/[A-Za-z0-9_-]{10,1200}$/;
+
+export function isPlaceId(id: string): boolean {
+  return PLACE_ID_RE.test(id);
+}
+
+export function isPhotoName(name: string): boolean {
+  return PHOTO_NAME_RE.test(name);
+}
+
+/** Who took a place photo. Google requires showing this next to the photo. */
+export interface PhotoAttribution {
+  displayName: string;
+  /** Contributor profile link (Google Maps only), or null. */
+  uri: string | null;
+}
+
+/** First place photo: resource name (short-lived, refreshed with details) + author credit. */
+export interface PlacePhotoRef {
+  name: string;
+  widthPx: number | null;
+  heightPx: number | null;
+  attributions: PhotoAttribution[];
+}
 
 export type BusinessStatus = "OPERATIONAL" | "CLOSED_TEMPORARILY" | "CLOSED_PERMANENTLY" | "UNKNOWN";
 
@@ -46,6 +80,13 @@ export interface PlaceDisplayCache {
   /** From addressComponents: ISO country code and locality (library sorting fallback). */
   countryCode: string | null;
   locality: string | null;
+  /** Neighborhood or sublocality ("Alfama"), for the card's "filed under" line. Optional (older caches). */
+  neighborhood?: string | null;
+  /**
+   * First place photo (display only). Optional: caches written before photos were requested
+   * lack it, and the photo route refreshes those by place id.
+   */
+  photo?: PlacePhotoRef | null;
   fetchedAt: string;
 }
 
@@ -64,8 +105,18 @@ export interface TextSearchRequest {
   maxResults?: number;
 }
 
-export interface PlacesClient {
+export interface PlaceSearch {
   searchText(req: TextSearchRequest): Promise<PlaceCandidate[]>;
+}
+
+export interface PlacesClient extends PlaceSearch {
+  /** Place Details (New) by id; null when Google no longer knows the id (404). */
+  getPlace(placeId: string, opts?: { languageCode?: string }): Promise<PlaceCandidate | null>;
+  /**
+   * Place Photo (New) media. Returns Google's response (image bytes after the redirect) for the
+   * caller to stream; never stored. Throws PlacesError on HTTP errors (e.g. an expired name).
+   */
+  fetchPhoto(photoName: string, opts?: { maxWidthPx?: number; maxHeightPx?: number }): Promise<Response>;
 }
 
 export class PlacesError extends Error {
@@ -101,6 +152,32 @@ interface RawPlace {
   websiteUri?: string;
   movedPlaceId?: string;
   addressComponents?: Array<{ longText?: string; shortText?: string; types?: string[] }>;
+  photos?: Array<{
+    name?: string;
+    widthPx?: number;
+    heightPx?: number;
+    authorAttributions?: Array<{ displayName?: string; uri?: string; photoUri?: string }>;
+  }>;
+}
+
+const CONTRIBUTOR_URI_RE = /^https:\/\/(www\.)?maps\.google\.com\/|^https:\/\/(www\.)?google\.com\/maps\//;
+
+export function mapPhoto(photos: RawPlace["photos"]): PlacePhotoRef | null {
+  const first = photos?.find((ph) => typeof ph.name === "string" && isPhotoName(ph.name));
+  if (!first?.name) return null;
+  return {
+    name: first.name,
+    widthPx: typeof first.widthPx === "number" ? first.widthPx : null,
+    heightPx: typeof first.heightPx === "number" ? first.heightPx : null,
+    attributions: (first.authorAttributions ?? [])
+      .filter((a) => typeof a.displayName === "string" && a.displayName.trim())
+      .slice(0, 3)
+      .map((a) => ({
+        displayName: a.displayName!.trim().slice(0, 80),
+        // Rendered as a link only when it points at a Google Maps contributor page.
+        uri: typeof a.uri === "string" && CONTRIBUTOR_URI_RE.test(a.uri) ? a.uri : null,
+      })),
+  };
 }
 
 export function mapRawPlace(p: RawPlace, now: Date = new Date()): PlaceCandidate | null {
@@ -130,6 +207,11 @@ export function mapRawPlace(p: RawPlace, now: Date = new Date()): PlaceCandidate
         p.addressComponents?.find((c) => c.types?.includes("locality"))?.longText ??
         p.addressComponents?.find((c) => c.types?.includes("postal_town"))?.longText ??
         null,
+      neighborhood:
+        p.addressComponents?.find((c) => c.types?.includes("neighborhood"))?.longText ??
+        p.addressComponents?.find((c) => c.types?.includes("sublocality_level_1") || c.types?.includes("sublocality"))?.longText ??
+        null,
+      photo: mapPhoto(p.photos),
       fetchedAt: now.toISOString(),
     },
   };
@@ -176,7 +258,7 @@ export function createPlacesClient(
         headers: {
           "content-type": "application/json",
           "x-goog-api-key": apiKey,
-          "x-goog-fieldmask": FIELD_MASK,
+          "x-goog-fieldmask": SEARCH_FIELD_MASK,
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(timeoutMs),
@@ -184,6 +266,35 @@ export function createPlacesClient(
       if (!res.ok) throw new PlacesError(res.status, `Places searchText failed: ${res.status}`);
       const json = (await res.json()) as { places?: RawPlace[] };
       return (json.places ?? []).map((p) => mapRawPlace(p, now())).filter((p): p is PlaceCandidate => !!p);
+    },
+    async getPlace(placeId, o = {}) {
+      if (!isPlaceId(placeId)) throw new PlacesError(400, "invalid place id");
+      const url = new URL(`${PLACES_BASE_URL}/places/${placeId}`);
+      if (o.languageCode) url.searchParams.set("languageCode", o.languageCode);
+      const res = await doFetch(url.toString(), {
+        method: "GET",
+        headers: { "x-goog-api-key": apiKey, "x-goog-fieldmask": DETAILS_FIELD_MASK },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new PlacesError(res.status, `Places details failed: ${res.status}`);
+      return mapRawPlace((await res.json()) as RawPlace, now());
+    },
+    async fetchPhoto(photoName, o = {}) {
+      if (!isPhotoName(photoName)) throw new PlacesError(400, "invalid photo name");
+      const url = new URL(`${PLACES_BASE_URL}/${photoName}/media`);
+      const clamp = (n: number) => String(Math.min(Math.max(Math.round(n), 1), 4800));
+      url.searchParams.set("maxWidthPx", clamp(o.maxWidthPx ?? 800));
+      if (o.maxHeightPx) url.searchParams.set("maxHeightPx", clamp(o.maxHeightPx));
+      // Key in a header, not the query string, so it never lands in logs or redirect URLs.
+      const res = await doFetch(url.toString(), {
+        method: "GET",
+        headers: { "x-goog-api-key": apiKey },
+        redirect: "follow",
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) throw new PlacesError(res.status, `Places photo failed: ${res.status}`);
+      return res;
     },
   };
 }

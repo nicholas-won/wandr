@@ -241,7 +241,7 @@ The trip moves through **fixed stages**. In each one the group sends ideas, vote
 
 - **FR-20** **Web POC:**
   - Paste a link (TikTok, IG, YouTube, Maps, any URL), upload a screenshot, or type an idea.
-  - Or text a link or screenshot to the app's number (§6.6).
+  - *(Removed, D65.)* Texting a link or screenshot to the app's number.
 - **FR-21** *(Native app)* Share from any app through the OS **share sheet**, then pick a trip **or "Save for someday"** (the idea library, §6.12). Defaults to the most recently active trip if there is one, otherwise the library; AI picks the Stop or board.
 - **FR-22** **Duplicates** merge into one card: "also shared by X."
 - **FR-23** **Auto-add:**
@@ -298,7 +298,7 @@ Model: **anyone suggests, the app prioritizes, organizers decide.**
 
 - **FR-60** **Receipt capture should feel like a Workday expense upload:** photo, then share to the trip.
   - Web: an upload or camera button.
-  - By text: send the photo to the app's number.
+  - *(Removed, D65.)* By text.
   - Native app: the share sheet.
 - **FR-61** AI reads the merchant, date, line items, tax, tip, service charges, discounts, total and currency. Everything is editable.
   - Validate that line items add up to the total.
@@ -330,60 +330,35 @@ Model: **anyone suggests, the app prioritizes, organizers decide.**
   - The group sees a rounded band, and only when at least 3 people have answered. Ideas are tagged "within budget" or "splurge." (DN-14)
 - **FR-75** **No payment processing in the roadmap.** Money is tracked only. See §11.
 
-### 6.6 Messaging: push, texting and group-chat sharing (Partiful model)
+### 6.6 Messaging: minimal texts, share cards and the app (Partiful model)
 
-The trip must work fully without the app. Each message goes through the cheapest channel that still reaches the person:
-- **Push** for app users.
-- **Group-chat sharing** for news everyone needs. The organizer's own phone sends it, so it costs us nothing.
-- **Our own texts (SMS)** only for things that are personal, private or for someone new.
-- **Email** as a free backup.
-- No web push (too few people install the web app to their home screen).
+**Revised 2 Oct 2026 (D65).** Texts exist to get someone into a trip, Partiful-style: a sign-in code and a personal invite link. Everything else happens in the app (and push once the native app ships), with group-chat share cards doing the free, social reach. This keeps text costs and carrier risk near zero and gives people a reason to open the app.
 
 - **FR-80** **Which channel each message uses:**
 
-| Message | App users | No-app members |
-|---|---|---|
-| Sign-in / join codes | SMS | SMS |
-| Personal invite | Push (if already a user) | SMS |
-| Join request (to organizers) | Push | SMS |
-| Expense involving you, "you owe / are owed" | Push | SMS |
-| Poll closing (only to people who haven't voted) | Push | SMS |
-| New poll | Push | **Group-chat share** (FR-80a); fallback FR-80c |
-| Decision made | Push | Group-chat share |
-| Daily idea digest (only on days with new ideas) | Push or email | Group-chat share + optional email |
-| Trip updates (dates set, new Stop) | Push | Group-chat share |
-| Flight alerts | Push or email | Email |
+| Message | Channel |
+|---|---|
+| Sign-in / join codes | SMS (separate number, DN-22) |
+| Personal invite with personal link | SMS, without the trip's name (D65: "Nick added you to a trip on …") |
+| Join request (to organizers) | In the app (badge on People); push in the native app |
+| Expense involving you, "you owe / are owed" | In the app: a "What changed" money list (D66) |
+| Poll closing, new poll, decision made, trip updates | In the app; organizers are prompted to share a card to the group chat (FR-80a) |
+| Daily idea digest (only on days with new ideas) | In the app: a "What's new" section on the trip (D65) |
+| Flight alerts | Push or email (Phase 2) |
 
-- **FR-80a** **Share to group chat:**
-  - At key moments (new poll, decision, digest, trip update), organizers are prompted: "Share this to the group chat?"
-  - One tap opens the share sheet (Messages, WhatsApp, Instagram DMs, etc.) with text and a link filled in.
-  - Any member can share; the prompt goes to organizers.
-- **FR-80b** **Rich preview cards:** shared links unfurl into a card built for the group chat (idea photos, poll options, deadline, "Tap to vote").
-  - **Previews are snapshots**, because iMessage builds a preview once. So cards never show a live tally as current, and the call to action is "Tap to vote/see."
-  - Group-chat links go through the group link (FR-6). Someone who isn't signed in enters a code once, then stays signed in on that device.
-- **FR-80c** **Fallback:** if a poll hasn't been shared within about 12 hours, its no-app eligible voters get a personal text instead.
-- **FR-80d** **Surprise safety:** group-chat cards and previews never include surprise items (FR-91), because the guest of honor is often in the chat. Surprise polls and decisions go only by personal text or push to the people allowed to see them.
+- **FR-80a** **Share to group chat:** at key moments (new poll, decision, trip update), organizers are prompted: "Share this to the group chat?" One tap opens the share sheet (Messages, WhatsApp, Instagram DMs, etc.) with text and a link filled in. Any member can share; the prompt goes to organizers. In a duo it reads "Send to Sam".
+- **FR-80b** **Rich preview cards:** shared links unfurl into a card built for the group chat (idea photos, poll options, deadline, "Tap to vote"). Previews are snapshots, never live tallies. Group-chat links go through the group link (FR-6).
+- **FR-80c** *(Removed, D65.)* No personal-text fallback for unshared polls.
+- **FR-80d** **Surprise safety:** cards and previews never include surprise items (FR-91). Surprise polls and decisions are shown only in the app, to the people allowed to see them.
 - **FR-80e** **Privacy in group-chat cards:** no money amounts, no individual votes or Pass counts, no names of people who haven't voted, no phone numbers.
-- **FR-80f** **Gentle app prompt:** members who get many texts see "Get the app for instant updates (no texts)." Never required.
-- **FR-81** Every text includes a personal link (FR-5).
-- **FR-82** **Two-way texting.** Members can:
-  - Vote by replying 1, 2 or 3
-  - Approve joins with Y or N (organizers)
-  - Add an idea by texting a link or screenshot
-  - Add a receipt by texting a photo
-  - Every action gets a confirmation and an UNDO option.
-- **FR-83** **Routing replies:**
-  - Only one question is open per person at a time, so "reply 1" is never ambiguous. (DN-23)
-  - Texted-in ideas and receipts go to the most recently active trip and Stop, with a reply link to move them.
-  - **If the person has no active trip, texted-in ideas go to their idea library** (§6.12, FR-L2). The definition of "active trip" for this rule is **[OPEN]** (see §14).
-- **FR-84** **Throttling:** at most about 1 text per person per day unless something is time-sensitive. Target: **10–12 texts per no-app member per trip**, mostly invite, money and personal nudges.
-- **FR-85** **STOP and HELP:**
-  - Sign-in codes come from a separate number, so STOP doesn't block sign-in. (DN-22)
-  - Members who sent STOP are switched to email or push.
-  - Informal opt-outs ("stop texting me") are honored.
-- **FR-86** Trip names written by users are filtered or kept out of text bodies, to avoid carrier spam filtering (J-19).
-- **FR-87** App users get push notifications instead of texts, for everything.
-- **FR-88** *(Phase 3)* iMessage extension: interactive cards (vote inside Messages) that improve on the FR-80b link previews. It can't read the chat or post without a person sending.
+- **FR-81** Every text includes the person's personal link (FR-5) and "Not {name}? Reply WRONG" (FR-16).
+- **FR-82** *(Removed, D65.)* No two-way texting: no reply-to-vote, no texted approvals, no texted-in links or receipts. The app's number answers only STOP, HELP and WRONG (FR-85, FR-16); anything else gets a short reply pointing to the app.
+- **FR-83** *(Removed, D65.)*
+- **FR-84** **Throttling:** with only codes and invites, the limit is the existing code rate limits (FR-15) plus at most one invite per person per trip (J-18).
+- **FR-85** **STOP and HELP:** sign-in codes come from a separate number, so STOP doesn't block sign-in (DN-22). STOP and informal opt-outs are honored; those people are invited by email or by the organizer's own share instead.
+- **FR-86** Trip names are never put in text bodies (D65).
+- **FR-87** App users get push notifications instead of texts (native app, Phase 2).
+- **FR-88** *(Phase 3)* iMessage extension.
 
 ### 6.7 Bachelor/bachelorette mode (POC)
 
@@ -527,7 +502,7 @@ Once the group has decided **where** and **what**, the app helps with **when and
 
 **Capture and sorting**
 - **FR-L1** **Save with no trip.** The same capture as FR-20 (paste a link, upload a screenshot, type an idea) works with no trip. The result is a saved idea in the person's library.
-- **FR-L2** **Text to save.** A link or screenshot texted to the app's number lands in the library when the person has no active trip (FR-83). The confirmation reply is a plain receipt ("Saved: Time Out Market, Lisbon"), never marketing (FR-84 rules apply).
+- **FR-L2** *(Removed, D65.)* Text to save: links aren't texted in; people paste them in the app (and share to it from the native app in Phase 2).
 - **FR-L3** **Auto-sort.** The same extraction pipeline as §6.3 (including the C-20/C-21 protections) files each save by **country → city or region → category** (food, drinks, stays, activities, sights, nightlife, other). Low-confidence results are flagged "Is this right?" (same as FR-23). Non-place content follows FR-25.
 - **FR-L4** **Listicles** ("10 best bars in CDMX") follow FR-24: save all, or pick which.
 - **FR-L5** **Duplicates** merge into one saved idea, keeping every source link (FR-22).
@@ -825,10 +800,19 @@ Analysis:
 | D62 | Who the import cap applies to | Everyone, including trip guests: 3 free AI imports per person per day across the library, solo trips and group trips. The cap only limits AI imports: adding a place by hand is always free, so over-cap ideas still reach the trip. Voting and splitting are never capped. Upgrade prompts never go by text (FR-L23) |
 | D63 | Flight fare data | Add a fare API to scope in Phase 2 for library price alerts (FR-L17), separate from FlightAware AeroAPI (status only). Provider chosen at build time (§7a) |
 | D64 | Desktop vs phone web | Desktop web is a **planning workspace**: a marketing landing page with calls to action for visitors, classic setup (destinations and dates, FR-1b) as the main way to start, a sidebar trip shell and wide multi-column views. Phone web stays **capture-first** (paste a TikTok link, vote from a text) and bridges the gap until the native app. Founder decision, 2 Oct 2026 |
+| D65 | Texting (revises FR-20, FR-60, FR-80–86, FR-L2, D13, D23, D43, D49) | Texts only for sign-in codes and the personal invite link, never with the trip's name. Join approvals, votes, reminders, money updates and the digest live in the app; group-chat share cards carry the social reach (kept). No texted-in links, receipts or replies; the number answers only STOP/HELP/WRONG. The daily digest is an in-app "What's new" section. No quiet hours needed |
+| D66 | Money defaults | Unclaimed itemized items default to the uploader, flagged for the organizer. Receipts that don't add up are flagged with manual line-item entry; any remaining gap goes to the payer. Leftover pennies go to the uploader, flagged. Guest-of-honor items: ask at split time, default to the people who shared the item. Corrections update spending reports. Multiple payers, "covered by" and personal-only expenses are in the POC. Duplicate receipts also compare line items and go to the organizer. Everyone on the trip sees receipt photos (except surprise-hidden). Itemized receipts editable until locked. Money updates show in the app, not by text. Money still needs a confirmed number |
+| D67 | Personal links and joining | Personal links: view and vote only; on first open the person confirms their name and taps "Accept invitation" (no auto-join); after a few votes they're prompted to confirm their number to unlock everything else. The invitee types their own name. A mistyped invite ("Are you Jess?" → no) becomes a separate request; follow Partiful's confirmation pattern. Second device needs a code. The group link turns back on once requests are handled; no hourly join limits beyond the 20-request pause. Owners transfer before leaving or delete the trip. Organizers can act for managed members whose manager left. Size notices also show on the Ideas feed |
+| D68 | Voting, stages and Stops | FR-42 as written (Pass as a count). Split opinions only after voting. Stages can step back; stage chips always show. Organizers can set others' attendance and remove Stops (with a preview). Exactly 50% turnout counts, and ties are flagged "Split decision". City date changes leave polls alone. "Keep in Lisbon" re-tags the idea. Adding a city as a Stop marks that idea decided. "Not my pick, but I'm in" (FR-50) is visible only to that person; the founder questioned the feature, so it's a candidate to drop |
+| D69 | Library | Any city or board can become a trip at any time; starting a trip brings all of that place's saves, and the group decides in the trip. Drinks count as food and sights as activities for "trip-ready". Shared-board additions stay on the board. "Save for next time" keeps the source link. Saves still being sorted are sent anyway and fill in later. Board links are copied by the owner, never texted |
+| D70 | Plan | People can build the plan by hand (add an idea to a day and time) with "Arrange my days" as an optional helper. Rough times before dates are set. Packed-day warning at the pace limit. Plain engine reasons (no Claude rewrite). Side plans after the POC. Add check-in/out and weather forecasts (Open-Meteo) to the plan |
+| D71 | Surprise mode and organizers | Surprises can be hidden from anyone, organizers included (for when the guest of honor organizes). Removal still shows the full balance total |
+| D72 | AI, data and operations | If Claude declines, retry once with another Claude model, then fall back to the basic extractor. Refresh Google place details older than 30 days (store only place IDs long-term). Listicles always ask "add all or pick". Extraction effort medium until the live eval. Recycled numbers: email code or organizer re-approval. AI cost per import set after the live eval. Booking decision gate after 20 stays. Only the founder sees the metrics dashboard |
+| D73 | Idea cards | Every card shows a short description, a place photo from Google (with attribution; falls back to the source thumbnail, then an illustration) and its auto-sorted city and category, to jog memory. Ideas have threaded comments (FR-46) |
 | D59 | Plan optimization | In the POC: "Arrange my days" suggests a day-by-day order; the user previews, tweaks and locks. Considers geography, hours and fixed times, meals and pace, priority and attendance (weather is a stretch) |
 | D50 | Collection fees | No fee for collecting money. "Collect for the house" is free, tracked through Venmo/Zelle links |
 | D49 | Message channels | Push for app users. Group-chat share cards (free) for group news. SMS only for codes, invites, money and personal nudges. Email as a backup. No web push |
-| D48 | Map provider | Decide at build time: start on Google within the free tier, switch the map display if volume justifies it |
+| D48 | Map provider | Decide at build time: start on Google within the free tier, switch the map display if volume justifies it. **Built (2 Oct 2026):** Google Maps JS when a key is set; otherwise MapLibre with free OpenFreeMap tiles (attribution required, no SLA), falling back to an accessible list |
 | D46 | Product principle | Ease of use comes first; features appear only when needed (§2a) |
 | D44 | Defaults | All recommended defaults confirmed (owner succession, group link with approval, managed members, age 13+, changeable votes, budget band, one open text question, separate code number) |
 

@@ -1,4 +1,4 @@
--- 0007_money_decisions.sql: founder money decisions of 2026-10-02 (docs/open-questions.md).
+-- 0008_money_decisions.sql: founder money decisions of 2026-10-02 (docs/open-questions.md).
 --   Q23a expense_payers         one bill, several payers
 --   Q23c expenses.personal_member_id  personal-only expenses
 --   Q21  expense_corrections    corrected state of settled expenses, for spending reports

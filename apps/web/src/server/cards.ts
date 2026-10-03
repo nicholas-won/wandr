@@ -14,6 +14,7 @@ import {
   type TripSize,
   type VoteValue,
 } from "@wandr/core";
+import { cardBlurb, cardPhoto, locationLabel, readCache, type CardVisualFields } from "@/lib/idea-visual";
 
 export interface IdeaRow {
   id: string;
@@ -32,6 +33,9 @@ export interface IdeaRow {
   lng: number | null;
   createdByMemberId: string | null;
   candidates: unknown;
+  /** Short-lived Google display cache (FR-31); only read for the card visual. */
+  placeCache?: unknown;
+  placeCachedAt?: Date | null;
   /** Surprise mode (FR-91). Hidden members never receive the row, so this is safe to show. */
   hiddenFrom: string[];
 }
@@ -41,6 +45,8 @@ export interface SourceRow {
   kind: string;
   url: string | null;
   thumbnailUrl: string | null;
+  /** Untrusted source text; only its sanitized first line is shown (C-21). */
+  caption?: string | null;
   creatorHandle: string | null;
   sharedByMemberId: string | null;
   createdAt: Date;
@@ -56,7 +62,7 @@ export interface RevealRow {
   voters: { member_id: string; display_name: string; value: VoteValue }[] | null;
 }
 
-export interface IdeaCard {
+export interface IdeaCard extends CardVisualFields {
   id: string;
   title: string;
   category: string;
@@ -84,6 +90,8 @@ export interface IdeaCard {
   listicle: { name: string; summary: string }[] | null;
   /** FR-91: who this idea is hidden from (e.g. the guest of honor). */
   hiddenFrom: string[];
+  /** FR-46: live comments the viewer can see (RLS-filtered count). */
+  commentCount: number;
 }
 
 export const REVIEW_THRESHOLD = 0.6;
@@ -96,6 +104,13 @@ export function buildIdeaCards(args: {
   reveals: RevealRow[];
   myVotes: Map<string, VoteValue>;
   memberNames: Map<string, string>;
+  /** Stop names by id, for the "Filed under" line. */
+  stopNames?: Map<string, string>;
+  /** Visible comment counts by idea (FR-46). */
+  commentCounts?: Map<string, number>;
+  /** A Places key is configured (place photos available). */
+  photosEnabled?: boolean;
+  now?: Date;
 }): IdeaCard[] {
   const { size, viewerMemberId, ideas, sources, reveals, myVotes, memberNames } = args;
   const revealById = new Map(reveals.map((r) => [r.ideaId, r]));
@@ -110,6 +125,9 @@ export function buildIdeaCards(args: {
     const r = revealById.get(idea.id);
     const srcs = sourcesById.get(idea.id) ?? [];
     const first = srcs[0];
+    const cache = readCache(idea.placeCache);
+    const caption = srcs.find((s) => s.kind !== "text" && s.caption)?.caption ?? null;
+    const blurb = cardBlurb(idea.summary, caption);
     const myVote = myVotes.get(idea.id) ?? null;
     const score: IdeaScore | null =
       r && r.voterCount !== null
@@ -146,7 +164,27 @@ export function buildIdeaCards(args: {
         (idea.extraction === "resolved" && (idea.confidence ?? 1) < REVIEW_THRESHOLD),
       notAPlace: idea.extraction === "not_a_place",
       permanentlyClosed: idea.permanentlyClosed,
-      thumbnailUrl: first?.thumbnailUrl ?? null,
+      thumbnailUrl: srcs.find((s) => s.thumbnailUrl)?.thumbnailUrl ?? null,
+      ...cardPhoto({
+        kind: "idea",
+        id: idea.id,
+        placeId: idea.placeId,
+        placeCache: idea.placeCache,
+        placeCachedAt: idea.placeCachedAt ?? null,
+        enabled: !!args.photosEnabled,
+        now: args.now,
+      }),
+      locationLabel:
+        idea.extraction === "not_a_place"
+          ? null
+          : locationLabel({
+              neighborhood: cache.neighborhood,
+              city: idea.cityHint ?? cache.locality,
+              stop: idea.stopId ? (args.stopNames?.get(idea.stopId) ?? null) : null,
+              category: idea.category,
+            }),
+      blurb: blurb && blurb.toLocaleLowerCase() !== idea.title.toLocaleLowerCase() ? blurb : null,
+      commentCount: args.commentCounts?.get(idea.id) ?? 0,
       sourceUrl: first?.url ?? null,
       sourceKind: first?.kind ?? null,
       creatorHandle: first?.creatorHandle ?? null,
