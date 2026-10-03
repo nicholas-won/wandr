@@ -5,6 +5,7 @@ import { AddIdea } from "@/components/trip/add-idea";
 import { AddExpenseLink } from "@/components/money/add-expense-link";
 import { AutoRefresh } from "@/components/trip/auto-refresh";
 import { IdeaCard } from "@/components/trip/idea-card";
+import { WhatsNewCard } from "@/components/trip/whats-new";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { routes } from "@/lib/routes";
@@ -46,6 +47,7 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
       <main className="space-y-4">
         <AutoRefresh active={processing} />
         {canAdd ? <AddIdea tripId={tripId} autoFocus={view.ideas.length === 0} /> : null}
+        {size !== "solo" ? <WhatsNewCard tripId={tripId} myMemberId={view.me.memberId} /> : null}
         {canAdd && !view.hasExpenses ? <AddExpenseLink tripId={tripId} /> : null}
 
         {size === "duo" && !view.me.noticesSeen.includes("duo_votes_visible") ? (
