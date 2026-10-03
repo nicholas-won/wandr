@@ -174,7 +174,7 @@ function EmptyIdeas() {
         Paste any link (TikTok, Instagram, Google Maps, a blog post) or type an idea. We&apos;ll find the place.
       </p>
       <p className="mt-3 hidden text-sm lg:block">
-        Tip: on your phone, copy a TikTok&apos;s share link and paste it here, or text it to the trip&apos;s number.
+        Tip: on your phone, tap Share on a TikTok, copy the link and paste it here.
       </p>
     </div>
   );

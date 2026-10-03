@@ -5,7 +5,7 @@ import { getDb } from "@wandr/db";
 import { AppHeader } from "@/components/app/app-header";
 import { buttonVariants } from "@/components/ui/button";
 import { PasteStartForm } from "@/components/marketing/start-forms";
-import { getSession } from "@/lib/auth/session";
+import { getSession, requireFullOrRedirect } from "@/lib/auth/session";
 import { libraryRoutes } from "@/lib/library-routes";
 import { routes } from "@/lib/routes";
 import { countMySaves } from "@/server/library";
@@ -17,6 +17,7 @@ const SIZE_LABEL = { solo: "Just you", duo: "Two of you", group: "Group trip" } 
 
 /** The app's home (D64). The website lives at `/`. */
 export default async function TripsPage() {
+  await requireFullOrRedirect(routes.home);
   const session = await getSession();
   const db = await getDb();
   const trips = session.user ? await listMyTrips(db, session.user.userId) : [];

@@ -203,7 +203,7 @@ The trip moves through **fixed stages**. In each one the group sends ideas, vote
 - **FR-1** **Two ways to start:**
   - (a) Paste or upload anything (TikTok, IG, YouTube or Maps link, any URL, screenshot, plain text). The app shows the AI card, **saves it to the person's idea library** (§6.12), and offers "Start a trip around this?", suggesting a trip name and Stop.
   - (b) Classic setup: name, destination(s), dates.
-  - In both, the phone is verified only when invites are sent.
+  - *(Revised, D74.)* In both, the person first signs up with their phone number (a texted code, no password), so every trip and save belongs to that number from the start.
 - **FR-2** **Roles:**
   - **Owner:** the creator. Can't be removed; can transfer ownership.
   - **Organizers:** everything except removing the owner.
@@ -809,6 +809,7 @@ Analysis:
 | D71 | Surprise mode and organizers | Surprises can be hidden from anyone, organizers included (for when the guest of honor organizes). Removal still shows the full balance total |
 | D72 | AI, data and operations | If Claude declines, retry once with another Claude model, then fall back to the basic extractor. Refresh Google place details older than 30 days (store only place IDs long-term). Listicles always ask "add all or pick". Extraction effort medium until the live eval. Recycled numbers: email code or organizer re-approval. AI cost per import set after the live eval. Booking decision gate after 20 stays. Only the founder sees the metrics dashboard |
 | D73 | Idea cards | Every card shows a short description, a place photo from Google (with attribution; falls back to the source thumbnail, then an illustration) and its auto-sorted city and category, to jog memory. Ideas have threaded comments (FR-46) |
+| D74 | Sign up before starting (revises FR-1, P1) | Starting a trip or saving an idea begins with signing up by phone (number → texted code → name), so trips are attributed to the number from the start; no anonymous trips claimed later. Invited guests still view and vote from their personal link with no sign-up (FR-5). Until Twilio is connected, the code screen says so and accepts the test code in non-production builds |
 | D59 | Plan optimization | In the POC: "Arrange my days" suggests a day-by-day order; the user previews, tweaks and locks. Considers geography, hours and fixed times, meals and pace, priority and attendance (weather is a stretch) |
 | D50 | Collection fees | No fee for collecting money. "Collect for the house" is free, tracked through Venmo/Zelle links |
 | D49 | Message channels | Push for app users. Group-chat share cards (free) for group news. SMS only for codes, invites, money and personal nudges. Email as a backup. No web push |

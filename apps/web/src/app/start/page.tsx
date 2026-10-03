@@ -1,16 +1,20 @@
 import type { Metadata } from "next";
 import { AppHeader } from "@/components/app/app-header";
 import { ClassicSetupForm, PasteStartForm } from "@/components/marketing/start-forms";
+import { requireFullOrRedirect } from "@/lib/auth/session";
+import { routes } from "@/lib/routes";
 
 export const metadata: Metadata = { title: "Plan a trip" };
 
 /**
- * The handoff from the website into the app (D64): one focused setup step instead of silently
- * creating a trip. Desktop leads with destinations and dates (FR-1b); phones lead with a link (FR-1a).
+ * The handoff from the website into the app (D64): sign up with your number (D74), then one focused
+ * setup step. Desktop leads with destinations and dates (FR-1b); phones lead with a link (FR-1a).
  */
 export default async function StartPage({ searchParams }: PageProps<"/start">) {
   const sp = await searchParams;
   const raw = typeof sp.raw === "string" ? sp.raw.slice(0, 2000) : "";
+  // D74: sign up with your number first, so every trip and save belongs to it from the start.
+  await requireFullOrRedirect(raw ? `${routes.start}?raw=${encodeURIComponent(raw)}` : routes.start);
   return (
     <div className="flex flex-1 flex-col">
       <AppHeader />

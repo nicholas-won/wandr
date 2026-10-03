@@ -2,47 +2,25 @@
  * The founder's first real test is a duo trip (D54): start → idea → invite → the other person
  * opens their personal link and votes with no app → both see each other's votes (§6.10).
  */
-import { expect, test, type Page } from "@playwright/test";
-
-async function startTrip(page: Page) {
-  // Website → app handoff (D64): the call to action opens the /start setup step.
-  await page.goto("/");
-  await page.getByRole("link", { name: /Start planning/ }).first().click();
-  await expect(page).toHaveURL(/\/start/);
-  const form = page.locator("form").filter({ has: page.locator('input[name="destinations"]') });
-  await form.locator('input[name="destinations"]').fill("Lisbon");
-  await form.locator('input[name="name"]').fill("Nick & Sam");
-  await form.getByRole("button", { name: "Create trip" }).click();
-  await expect(page.getByRole("heading", { name: "Nick & Sam" }).first()).toBeVisible({ timeout: 30_000 }); // first compile of the trip page on a cold dev server
-}
+import { expect, test } from "@playwright/test";
+import { startTrip } from "./helpers";
 
 test("duo trip: idea, invite, personal link, open votes", async ({ page, browser }, info) => {
   const isPhone = info.project.name === "phone";
   // Each project gets its own numbers: the projects share one database.
   const nickPhone = isPhone ? "202-555-0111" : "202-555-0101";
   const samPhone = isPhone ? "202-555-0152" : "202-555-0142";
-  await startTrip(page);
+  // D74: Nick signs up with a number first, so the trip is saved to it from the start.
+  await startTrip(page, { phone: nickPhone, name: "Nick", trip: "Nick & Sam" });
 
   // Add a typed idea (no network needed) and see the card fill in.
   await page.getByLabel("Paste a link or type an idea").fill("Pastéis de Belém");
   await page.getByRole("button", { name: "Add idea" }).click();
   await expect(page.getByRole("heading", { name: /Pastéis de Belém/ })).toBeVisible({ timeout: 30_000 });
 
-  // Inviting reaches someone else, so it asks the creator to confirm a number (FR-1).
+  // Already signed up, so inviting needs no extra step.
   const tripUrl = page.url().split("?")[0]!;
   await page.goto(`${tripUrl}/people`);
-  await page.getByLabel("Name").fill("Sam");
-  await page.getByLabel("Mobile").fill(samPhone);
-  await page.getByRole("button", { name: /Text them an invite/ }).click();
-  await expect(page).toHaveURL(/\/signin/);
-  await page.getByLabel("Mobile number").fill(nickPhone);
-  await page.getByRole("button", { name: "Text me a code" }).click();
-  await page.getByLabel("6-digit code").fill("000000");
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByLabel("Your name").fill("Nick");
-  await page.getByRole("button", { name: "Done" }).click();
-  await expect(page).toHaveURL(/\/people/);
-
   await page.getByLabel("Name").fill("Sam");
   await page.getByLabel("Mobile").fill(samPhone);
   await page.getByRole("button", { name: /Text them an invite/ }).click();

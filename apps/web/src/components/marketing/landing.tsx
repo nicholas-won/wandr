@@ -145,7 +145,7 @@ export function Landing({ appUser = false }: { appUser?: boolean }) {
           <SectionTitle eyebrow="FAQ" title="Good questions" />
           <div className="mt-8 divide-y rounded-2xl border bg-card">
             <Faq q="Do my friends need to download an app?" a="No. Everyone gets a personal link and can view and vote right away in their browser." />
-            <Faq q="Do I need an account to start?" a="No. Start a trip with just a name or a link. You confirm your number when you invite people." />
+            <Faq q="Do I need an account?" a="You sign up with your phone number: no password, just a texted code, and your trips are saved to it. Friends you invite don't need an account to view and vote." />
             <Faq q="Where does it work?" a="Anywhere you travel. Invite texts go to US and Canadian numbers for now; anyone can join from a shared link." />
             <Faq q="How does it handle money?" a="It tracks who paid and who owes, per currency, and shows the fewest payments to settle up. It never moves money itself." />
             <Faq q="Is it free?" a="Yes, planning a trip with friends is free. Joining a trip, voting and splitting costs are always free." />
@@ -167,7 +167,7 @@ export function Landing({ appUser = false }: { appUser?: boolean }) {
               <Link href={appUser ? routes.home : routes.start} className={buttonVariants({ size: "lg" })}>
                 {appUser ? "Open the app" : "Start planning, free"} <ArrowRight aria-hidden />
               </Link>
-              <span className="text-sm opacity-70">No sign-up needed to start.</span>
+              <span className="text-sm opacity-70">Sign up with just your phone number.</span>
             </div>
           </div>
         </div>

@@ -52,7 +52,7 @@ All nine slices plus 2b have a first version on `feat/foundation`, with unit, RL
 
 ## Non-negotiable rules
 
-- **Ease of use first (§2a).** Features stay hidden until needed; one primary action per screen; a guest votes in 2 taps from a text; a trip with zero setup works.
+- **Ease of use first (§2a).** Features stay hidden until needed; one primary action per screen; a guest votes in 2 taps from a text; starting a trip needs only a phone number (D74), nothing else.
 - **Privacy is enforced in the database (Row Level Security), not just the UI:**
   - Individual Pass votes and who hasn't voted are never visible to other members (FR-42).
   - Surprise items are never visible to hidden members, including in counts, previews, texts or share cards (FR-91, FR-80d).

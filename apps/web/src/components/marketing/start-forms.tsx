@@ -49,7 +49,7 @@ export function ClassicSetupForm({
       <Button type="submit" size="lg" block>
         {cta} <ArrowRight aria-hidden />
       </Button>
-      <p className="text-center text-xs text-muted-foreground">No sign-up needed. Free to plan with friends.</p>
+      <p className="text-center text-xs text-muted-foreground">Free to plan with friends.</p>
     </form>
   );
 }

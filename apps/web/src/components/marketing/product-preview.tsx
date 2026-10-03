@@ -51,8 +51,8 @@ export function ProductPreview() {
           </div>
         </div>
         <div className="rounded-xl border bg-card p-3 text-xs">
-          <p className="font-semibold">💬 Text from the trip</p>
-          <p className="mt-1 text-muted-foreground">New idea for your trip: Rooftop seafood spot. Reply 1 Must-do, 2 Down, 3 Pass.</p>
+          <p className="font-semibold">💬 Shared to the group chat</p>
+          <p className="mt-1 text-muted-foreground">Rooftop seafood spot · Lisbon. Tap to vote, no app needed.</p>
         </div>
       </div>
     </div>

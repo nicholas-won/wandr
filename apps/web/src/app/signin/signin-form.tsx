@@ -10,16 +10,28 @@ import { Turnstile } from "@/components/turnstile";
 import { signInStep } from "./actions";
 import type { SignInState } from "./state";
 
-export function SignInForm({ initial, turnstileSiteKey }: { initial: SignInState; turnstileSiteKey: string | null }) {
+export function SignInForm({
+  initial,
+  turnstileSiteKey,
+  devCodeHint = false,
+  signup = false,
+}: {
+  initial: SignInState;
+  turnstileSiteKey: string | null;
+  /** Local/test only: Twilio isn't connected, so say which code works (000000). */
+  devCodeHint?: boolean;
+  /** Arriving from "Start planning": frame it as signing up, since trips belong to your number (D74). */
+  signup?: boolean;
+}) {
   const [state, action, pending] = useActionState(signInStep, initial);
   const errorId = React.useId();
 
   return (
     <form action={action} className="flex flex-1 flex-col" noValidate>
       {state.step === "contact" ? (
-        <ContactStep state={state} pending={pending} errorId={errorId} turnstileSiteKey={turnstileSiteKey} />
+        <ContactStep state={state} pending={pending} errorId={errorId} turnstileSiteKey={turnstileSiteKey} signup={signup} />
       ) : state.step === "code" ? (
-        <CodeStep state={state} pending={pending} errorId={errorId} />
+        <CodeStep state={state} pending={pending} errorId={errorId} devCodeHint={devCodeHint} />
       ) : (
         <NameStep state={state} pending={pending} errorId={errorId} />
       )}
@@ -46,13 +58,20 @@ function ErrorText({ id, error }: { id: string; error?: string }) {
   );
 }
 
-function ContactStep({ state, pending, errorId, turnstileSiteKey }: StepProps & { turnstileSiteKey: string | null }) {
+function ContactStep({
+  state,
+  pending,
+  errorId,
+  turnstileSiteKey,
+  signup,
+}: StepProps & { turnstileSiteKey: string | null; signup: boolean }) {
   const sms = state.channel === "sms";
+  const how = sms ? "We'll text you a code. No password needed." : "We'll email you a code. No password needed.";
   return (
     <>
       <Heading
-        title={sms ? "What's your number?" : "What's your email?"}
-        sub={sms ? "We'll text you a code. No password needed." : "We'll email you a code. No password needed."}
+        title={signup ? "First, your number" : sms ? "What's your number?" : "What's your email?"}
+        sub={signup ? `Your trips and saved ideas belong to your number, so they're never lost. ${how}` : how}
       />
       <Label htmlFor="destination">{sms ? "Mobile number" : "Email"}</Label>
       <Input
@@ -89,10 +108,17 @@ function ContactStep({ state, pending, errorId, turnstileSiteKey }: StepProps & 
   );
 }
 
-function CodeStep({ state, pending, errorId }: StepProps) {
+function CodeStep({ state, pending, errorId, devCodeHint }: StepProps & { devCodeHint: boolean }) {
+  const continueRef = React.useRef<HTMLButtonElement>(null);
   return (
     <>
       <Heading title="Enter your code" sub={<>Sent to <span className="font-semibold text-foreground">{state.display}</span>.</>} />
+      {devCodeHint ? (
+        <p className="-mt-4 mb-6 rounded-xl border border-dashed border-primary/60 bg-accent px-4 py-3 text-sm text-accent-foreground">
+          <strong>Test mode:</strong> texting isn&apos;t connected yet, so no text was sent. Enter{" "}
+          <span className="font-mono font-semibold">000000</span> (the real code is also printed in the server console).
+        </p>
+      ) : null}
       <Label htmlFor="code">6-digit code</Label>
       <Input
         id="code"
@@ -106,10 +132,16 @@ function CodeStep({ state, pending, errorId }: StepProps) {
         autoFocus
         aria-invalid={state.error ? true : undefined}
         aria-describedby={errorId}
+        onChange={(e) => {
+          // Submit as soon as all 6 digits are in (typed or autofilled from the text).
+          if (/^\d{6}$/.test(e.currentTarget.value) && !pending) {
+            e.currentTarget.form?.requestSubmit(continueRef.current ?? undefined);
+          }
+        }}
       />
       <ErrorText id={errorId} error={state.error} />
       <div className="mt-auto flex flex-col gap-3 pt-8">
-        <Button type="submit" name="intent" value="verify" size="lg" block loading={pending}>
+        <Button ref={continueRef} type="submit" name="intent" value="verify" size="lg" block loading={pending}>
           Continue
         </Button>
         <div className="flex justify-center gap-6">

@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { eq } from "drizzle-orm";
 import { asService, getDb, users } from "@wandr/db";
-import { createProvisionalUser, PROVISIONAL_NAME } from "@/lib/auth/provisional";
-import { getSession, setFullSession } from "@/lib/auth/session";
+import { PROVISIONAL_NAME } from "@/lib/auth/provisional";
+import { getSession } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { libraryRoutes } from "@/lib/library-routes";
 import { track } from "@/server/analytics";
@@ -15,25 +15,20 @@ import { saveToLibrary } from "@/server/library";
 import { createTrip, DEFAULT_TRIP_NAME } from "@/server/trips";
 
 /**
- * FR-1 / P1: start a trip from a pasted link or just a name. No sign-up: the creator gets a
- * device session and verifies a phone only when they send invites.
+
+/**
+ * D74: trips and saves belong to a verified phone number from the start. Anyone not signed in is
+ * sent to sign up first and comes back to /start.
  */
 async function ensureUser() {
   const db = await getDb();
   const session = await getSession();
-  let userId = session.user?.userId;
-  let ownerName = PROVISIONAL_NAME;
-  if (!userId) {
-    userId = await asService(db, (tx) => createProvisionalUser(tx));
-    await setFullSession({ userId, needsRecheck: false, provisional: true });
-  } else {
-    const id = userId;
-    const [u] = await asService(db, (tx) =>
-      tx.select({ n: users.displayName }).from(users).where(eq(users.id, id)),
-    );
-    ownerName = u?.n || PROVISIONAL_NAME;
-  }
-  return { db, userId, ownerName };
+  const user = session.user;
+  if (!user || user.provisional) redirect(routes.signin(routes.start));
+  const [u] = await asService(db, (tx) =>
+    tx.select({ n: users.displayName }).from(users).where(eq(users.id, user.userId)),
+  );
+  return { db, userId: user.userId, ownerName: u?.n || PROVISIONAL_NAME };
 }
 
 /**

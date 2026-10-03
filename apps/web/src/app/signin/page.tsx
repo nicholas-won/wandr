@@ -28,6 +28,9 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
   }
 
   const pending = needsName ? null : await pendingChallenge();
+  // Local/test only: without Twilio Verify, codes go to the server console and 000000 works.
+  const e = env();
+  const devCodeHint = e.NODE_ENV !== "production" && !(e.TWILIO_ACCOUNT_SID && e.TWILIO_AUTH_TOKEN && e.TWILIO_VERIFY_SERVICE_SID);
   return (
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col px-5 pb-8 pt-6">
       <Brand />
@@ -41,6 +44,8 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
               : { step: "contact", channel: "sms", next }
           }
           turnstileSiteKey={env().NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? null}
+          devCodeHint={devCodeHint}
+          signup={next.startsWith(routes.start)}
         />
       </div>
     </main>
