@@ -28,15 +28,26 @@ move the answer into REQUIREMENTS.md §13 and update the code.
 
 | # | Question | Provisional default |
 |---|---|---|
-| Q16 | Unclaimed itemized items after the claim window (DN-17) | Block until the uploader assigns or absorbs (FR-62) |
-| Q17 | Receipt doesn't add up (E-6) | Block; gap can be assigned to one person or split evenly |
-| Q18 | Leftover pennies: lowest member id vs rotate per expense (E-21) | Lowest member id (rotation available) |
-| Q19 | Guest of honor's items on itemized receipts | Spread over everyone else in proportion to subtotal |
-| Q20 | Refund larger than original | Rejected |
-| Q21 | Adjustments change net balance only (not per-person spend) | Net balance only |
-| Q22 | Late joiners on itemized expenses (FR-12) | Even splits only |
-| Q23 | Not built: multiple payers (E-17), "covered by" (E-15), personal tracking-only (E-14) | Out of scope until specced |
-| Q24 | Duplicate receipt window | ±24 h |
+| Q16 | Unclaimed itemized items after the claim window (DN-17) | **DECIDED** (founder, 2 Oct 2026): Unclaimed items default to the **uploader** until someone claims them, and are flagged for the organizer to handle or reassign (money page banner) |
+| Q17 | Receipt doesn't add up (E-6) | **DECIDED** (founder, 2 Oct 2026): Flagged "We couldn't read this receipt correctly"; the user can fix or re-enter the line items (also after saving, until someone pays: MT6) and shares are computed from the entered items. Any gap left is covered by the **payer** (several payers: in proportion to what each paid) |
+| Q18 | Leftover pennies: lowest member id vs rotate per expense (E-21) | **DECIDED** (founder, 2 Oct 2026): Leftover pennies all go to the **uploader** (then the payer if the uploader isn't in the split; deterministic), and the expense shows a small "Rounded" note |
+| Q19 | Guest of honor's items on itemized receipts | **DECIDED** (founder, 2 Oct 2026): Asked at split time (uploader or organizer): default **only the people who shared that item with them**; alternatives "split evenly among everyone else" and "in proportion". An item only the guest of honor had has no sharers, so it is split evenly among everyone else |
+| Q20 | Refund larger than original | **DECIDED** (founder, 2 Oct 2026): Keep: a refund can't exceed the original (for a corrected settled expense, the corrected total) |
+| Q21 | Adjustments change net balance only (not per-person spend) | **DECIDED** (founder, 2 Oct 2026): Corrections to settled expenses also update the spending reports (category totals, spend per person): each correction stores the corrected state (`expense_corrections`) and reports use the latest |
+| Q22 | Late joiners on itemized expenses (FR-12) | **DECIDED** (founder, 2 Oct 2026): Late joiners claim their own items on itemized receipts; organizers can also add them ("Who shares what" lists the receipts per late joiner) |
+| Q23 | Not built: multiple payers (E-17), "covered by" (E-15), personal tracking-only (E-14) | **DECIDED** (founder, 2 Oct 2026): Build all three: (a) one bill, several payers (parts must sum to the total, `expense_payers`); (b) "covered by" (the share counts as the coverer's in balances and spend); (c) personal-only expenses (tracked for one person, never split, visible only to them via RLS, never locked, excluded from group balances and group reports) |
+| Q24 | Duplicate receipt window | **DECIDED** (founder, 2 Oct 2026): Keep merchant/total/currency within a day, **plus** a line-item check: two receipts (same currency, within a day, at least 2 lines each) are flagged for the organizer (keep both / delete one) when the multiset Jaccard of normalized item labels AND of exact item amounts are both >= 4/5 (`packages/core/src/money/similarity.ts`) |
+
+## Money follow-ups (founder decision page, 2 Oct 2026)
+
+| # | Question | Decision |
+|---|---|---|
+| MT1 | "You owe" texts after money changes | **DECIDED:** texting unchanged for now; money updates live in the app. The money page has a "What changed" list (latest expenses, corrections, edits and payments affecting you, with amounts) |
+| MT2 | Who records a payment | **DECIDED:** keep: payer, payee or an organizer |
+| MT3 | Who sees receipt photos | **DECIDED:** everyone on the trip, except people the expense is hidden from in surprise mode (and, for a personal-only expense, everyone but its owner) |
+| MT4 | Guest of honor marked after settlement | **DECIDED:** keep: settled expenses stay as they are |
+| MT5 | Money without a confirmed number | **DECIDED:** keep: money needs a confirmed number, even for solo spend tracking |
+| MT6 | Editing an itemized receipt | **DECIDED:** editable until anyone has paid (lock): items, amounts, total, charges and claims; shares are recomputed |
 
 ## Plan optimizer (packages/core/src/optimizer)
 
@@ -91,8 +102,8 @@ Decided by the founder in chat; propose adding to §13 as D64:
 
 | # | Question | Provisional default |
 |---|---|---|
-| JR1 | FR-9 "write it off": who absorbs the forgiven balance? | The people on the other side of the balance (those owed, or those owing), in proportion to their own balance. "Split across the group" spreads it evenly over active members instead |
-| JR2 | M-4 leaving with an open balance: must it be resolved like removal (FR-9)? | No. The balance is shown first and stays on the ledger under "former member" (M-1/M-2). Only organizer removal requires a resolution |
+| JR1 | FR-9 "write it off": who absorbs the forgiven balance? | **DECIDED** (founder, 2 Oct 2026): Keep (absorbed in proportion by the other side). Was: The people on the other side of the balance (those owed, or those owing), in proportion to their own balance. "Split across the group" spreads it evenly over active members instead |
+| JR2 | M-4 leaving with an open balance: must it be resolved like removal (FR-9)? | **DECIDED** (founder, 2 Oct 2026): Keep (leaving with a balance doesn't require settling). Was: No. The balance is shown first and stays on the ledger under "former member" (M-1/M-2). Only organizer removal requires a resolution |
 | JR3 | Owner leaving (J-10) | Must transfer ownership first; "Leave trip" refuses for the owner |
 | JR4 | Denied or removed people using the group link again | "Ask the organizer to add you"; no new request. Organizers can restore (30 days) or re-invite |
 | JR5 | J-7 auto-pause: does the link resume by itself once requests are cleared? | No. At 20 open requests the link turns off; the organizer makes a new link (the old one has clearly spread) |
@@ -100,7 +111,7 @@ Decided by the founder in chat; propose adding to §13 as D64:
 | JR7 | J-8 "That's not me" | A separate pending request under the typed name, flagged "says they're not Jess"; the invite row stays as is |
 | JR8 | Name after "Yes, I'm Jess" | Keeps the organizer's invite-list name |
 | JR9 | A verified person whose number/email doesn't match the invite opens someone's personal link | No account link (that would turn a forwarded link into full access). Identity attaches only on a matching phone/email |
-| JR10 | Balances shown to an organizer during removal include surprise expenses hidden from them (FR-91) | Included, since removal must resolve the true balance. Could reveal a hidden amount; confirm |
+| JR10 | Balances shown to an organizer during removal include surprise expenses hidden from them (FR-91) | **DECIDED** (founder, 2 Oct 2026): "The organizer should have a view into everything": organizers see the full removal balance, including expenses hidden from them. Only totals are shown; surprise-mode RLS is otherwise unchanged (clarified separately). Was: Included, since removal must resolve the true balance. Could reveal a hidden amount; confirm |
 | JR11 | Managed members whose manager is removed or leaves | Unchanged (still active, no one acts for them) |
 | JR12 | Organizer alert when the link auto-pauses; "Jess joined" undo (J-8) | In-app banner and audit entries only; no text yet |
 | JR13 | FR-T4/T5 notices: People page only, or also the Ideas feed? | People page for now; `SizeNotice` is reusable for the feed |
