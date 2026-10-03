@@ -48,8 +48,4 @@ export const pollsClosingSoonJob = inngest.createFunction(
  * D43 daily idea digest. 17:00 UTC (late morning US, evening Europe). Per-recipient quiet hours
  * need a member timezone, which the data model doesn't have yet.
  */
-<<<<<<< HEAD
-export const functions = [ideaAdded, savedIdeaAdded, closeDuePollsJob, pollsClosingSoonJob];
-=======
-export const functions = [ideaAdded, savedIdeaAdded, stopsGeocode, closeDuePollsJob];
->>>>>>> feat/foundation
+export const functions = [ideaAdded, savedIdeaAdded, stopsGeocode, closeDuePollsJob, pollsClosingSoonJob];

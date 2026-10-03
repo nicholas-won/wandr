@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { endpoints } from "@wandr/api-contract";
-import { asService, ideas, members, pollVotes, pollOptions, polls, pushLog, pushTokens, setDbForTests, users, votes, type Db } from "@wandr/db";
+import { asService, ideas, members, pollVotes, pollOptions, polls, pushLog, pushTokens, setDbForTests, users, votes, withSession, type Db } from "@wandr/db";
 import { createPglite } from "@wandr/db/pglite";
 
 const enqueued: { name: string; data: Record<string, unknown> }[] = [];
@@ -319,6 +319,9 @@ describe("push (FR-87)", () => {
     expect(rows.map((r) => [r.token, r.userId]).sort()).toEqual(
       [["ExponentPushToken[ana]", s.u.ana], ["ExponentPushToken[shared]", s.u.cy]].sort(),
     );
+    // Service only: no member can read tokens or the push log, even their own.
+    await expect(withSession(s.d, { sub: s.u.ana }, (tx) => tx.select().from(pushTokens))).rejects.toThrow();
+    await expect(withSession(s.d, { sub: s.u.ana }, (tx) => tx.select().from(pushLog))).rejects.toThrow();
     await signOutRoute(req("POST", "/x", { token: s.tok.cy, body: { expoPushToken: "ExponentPushToken[shared]" } }));
     expect(await asService(s.d, (tx) => tx.select().from(pushTokens))).toHaveLength(1);
     expect((await register(null as unknown as string, "ExponentPushToken[x]")).status).toBe(401);
