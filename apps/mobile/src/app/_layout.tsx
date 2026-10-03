@@ -1,8 +1,7 @@
-import {
-  BricolageGrotesque_700Bold,
-  BricolageGrotesque_800ExtraBold,
-  useFonts,
-} from "@expo-google-fonts/bricolage-grotesque";
+// Import only the two weights we use so the other five .ttf files stay out of the bundle.
+import { BricolageGrotesque_700Bold } from "@expo-google-fonts/bricolage-grotesque/700Bold";
+import { BricolageGrotesque_800ExtraBold } from "@expo-google-fonts/bricolage-grotesque/800ExtraBold";
+import { useFonts } from "expo-font";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, router, SplashScreen } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { ShareIntentProvider, useShareIntentContext } from "expo-share-intent";
