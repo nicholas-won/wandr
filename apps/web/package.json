@@ -14,6 +14,7 @@
   "dependencies": {
     "@sentry/nextjs": "^11.2.0",
     "@wandr/ai": "workspace:*",
+    "@wandr/api-contract": "workspace:*",
     "@wandr/core": "workspace:*",
     "@wandr/db": "workspace:*",
     "class-variance-authority": "^0.7.1",

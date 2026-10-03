@@ -189,7 +189,12 @@ export const endpoints = {
   signOut: {
     method: "POST",
     path: "/api/v1/auth/sign-out",
-    body: z.object({}),
+    /**
+     * Optional (added backward-compatibly): this device's push token, so a signed-out phone stops
+     * getting the person's pushes (which can include their balance). Tokens are stateless, so this
+     * is the only server-side effect of signing out.
+     */
+    body: z.object({ expoPushToken: z.string().min(10).max(200).optional() }),
     response: z.object({ ok: z.literal(true) }),
   },
 } as const;
