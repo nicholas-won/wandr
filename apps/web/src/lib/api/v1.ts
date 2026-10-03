@@ -73,9 +73,9 @@ export async function requireApiUser(request: Request): Promise<{ db: Db; user: 
 
 /** Wrap a handler: ApiFail → its status; anything else → 500 without internals. */
 export function handler<C>(fn: (request: Request, ctx: C) => Promise<Response>) {
-  return async (request: Request, ctx: C): Promise<Response> => {
+  return async (request: Request, ctx?: C): Promise<Response> => {
     try {
-      return await fn(request, ctx);
+      return await fn(request, ctx as C);
     } catch (e) {
       if (e instanceof ApiFail) return failure(e.status, e.code, e.message);
       console.error("[api/v1]", request.method, new URL(request.url).pathname, e);
