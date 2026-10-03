@@ -356,6 +356,8 @@ describe("migration bookkeeping", () => {
       "0008_founder_decisions.sql",
       "0009_money_decisions.sql",
       "0009_money_decisions_rls.sql",
+      "0012_account_recheck.sql",
+      "0012_account_recheck_rls.sql",
     ]);
   });
 });
