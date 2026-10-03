@@ -434,6 +434,145 @@ export async function fixIdea(
         extraction: "resolved",
         confidence: 1,
       })
-      .where(eq(ideas.id, args.ideaId)),
+      .where(eq(ideas.id, args.ideaId))
+      .returning({ id: ideas.id }),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Place search: "wrong place? fix" (FR-23, FR-32) and add by hand (FR-L20). No AI (FR-L22).
+// ---------------------------------------------------------------------------
+
+async function tripStopsFor(db: Db, claims: Claims, tripId: string) {
+  return withSession(db, claims, (tx) =>
+    tx.select({ id: stops.id, name: stops.name, lat: stops.lat, lng: stops.lng }).from(stops).where(eq(stops.tripId, tripId)),
+  );
+}
+
+/**
+ * Search places for a trip, biased to the idea's Stop (or the trip's only located Stop).
+ * Verified members only (FR-5): a personal link can't fix or add, so it can't spend searches.
+ */
+export async function searchPlacesForTrip(
+  db: Db,
+  claims: Claims,
+  args: { tripId: string; ideaId?: string | null; query: string },
+  deps: { places?: PlacesClient | null } = {},
+): Promise<PlaceSearchOutcome> {
+  const memberId = await myFullMemberId(db, claims, args.tripId);
+  if (!memberId) throw new IdeaInputError("not_found");
+  const tripStops = await tripStopsFor(db, claims, args.tripId);
+  let stopId: string | null = null;
+  if (args.ideaId) {
+    const [idea] = await withSession(db, claims, (tx) =>
+      tx
+        .select({ stopId: ideas.stopId })
+        .from(ideas)
+        .where(and(eq(ideas.id, args.ideaId!), eq(ideas.tripId, args.tripId))),
+    );
+    stopId = idea?.stopId ?? null;
+  }
+  return searchPlaces({ actor: claims.sub!, query: args.query, near: biasFor(tripStops, stopId) }, deps);
+}
+
+/**
+ * FR-23: a person picks the right place. Updates the place id, display cache, pin, category,
+ * city, closed flag and Stop, and marks it resolved. Runs as the caller, so RLS decides
+ * (verified members only, surprise items only for people who can see them).
+ */
+export async function pickPlaceForIdea(
+  db: Db,
+  claims: Claims,
+  args: { tripId: string; ideaId: string; placeId: string },
+  deps: { places?: PlacesClient | null } = {},
+): Promise<void> {
+  if (!claims.sub) throw new IdeaInputError("signin");
+  const c = await fetchPickedPlace(args.placeId, deps.places);
+  const f = pickedFields(c);
+  const tripStops = await tripStopsFor(db, claims, args.tripId);
+  const updated = await withSession(db, claims, async (tx) => {
+    const [idea] = await tx
+      .select({ stopId: ideas.stopId })
+      .from(ideas)
+      .where(and(eq(ideas.id, args.ideaId), eq(ideas.tripId, args.tripId)));
+    if (!idea) return [];
+    return tx
+      .update(ideas)
+      .set({
+        title: f.title,
+        category: f.category,
+        placeId: f.placeId,
+        placeCache: f.placeCache,
+        placeCachedAt: f.placeCachedAt,
+        lat: f.lat,
+        lng: f.lng,
+        priceLevel: f.priceLevel,
+        permanentlyClosed: f.permanentlyClosed,
+        cityHint: f.city,
+        extraction: f.extraction,
+        confidence: f.confidence,
+        candidates: f.candidates,
+        stopId: stopForPick(f.lat != null && f.lng != null ? { lat: f.lat, lng: f.lng } : null, tripStops, idea.stopId),
+      })
+      .where(eq(ideas.id, args.ideaId))
+      .returning({ id: ideas.id });
+  });
+  if (updated.length === 0) throw new IdeaInputError("not_found");
+}
+
+/**
+ * FR-L20: add an idea straight from the place search: free, no AI, never an import (FR-L22).
+ * The same place already on the trip gets "also shared by" instead of a second card (FR-22).
+ */
+export async function addIdeaFromPlace(
+  db: Db,
+  claims: Claims,
+  args: { tripId: string; placeId: string },
+  deps: { places?: PlacesClient | null } = {},
+): Promise<{ ideaId: string; merged: boolean }> {
+  const memberId = await myFullMemberId(db, claims, args.tripId);
+  if (!memberId) throw new IdeaInputError("not_found");
+  const c = await fetchPickedPlace(args.placeId, deps.places);
+  const f = pickedFields(c);
+  const tripStops = await tripStopsFor(db, claims, args.tripId);
+  const url = mapsUrlForPlaceId(c.placeId);
+  const result = await withSession(db, claims, async (tx) => {
+    const [dup] = await tx
+      .select({ id: ideas.id })
+      .from(ideas)
+      .where(and(eq(ideas.tripId, args.tripId), eq(ideas.placeId, c.placeId)))
+      .limit(1);
+    if (dup) {
+      await tx.insert(ideaSources).values({ ideaId: dup.id, kind: "google_maps", url, sharedByMemberId: memberId });
+      return { ideaId: dup.id, merged: true };
+    }
+    const [idea] = await tx
+      .insert(ideas)
+      .values({
+        tripId: args.tripId,
+        title: f.title,
+        category: f.category,
+        placeId: f.placeId,
+        placeCache: f.placeCache,
+        placeCachedAt: f.placeCachedAt,
+        lat: f.lat,
+        lng: f.lng,
+        priceLevel: f.priceLevel,
+        permanentlyClosed: f.permanentlyClosed,
+        cityHint: f.city,
+        extraction: f.extraction,
+        confidence: f.confidence,
+        stopId: stopForPick(f.lat != null && f.lng != null ? { lat: f.lat, lng: f.lng } : null, tripStops, null),
+        createdByMemberId: memberId,
+      })
+      .returning({ id: ideas.id });
+    // The source is a Maps link rebuilt from the place id (FR-26, FR-31); no normalized URL, so
+    // it never feeds the AI cache.
+    await tx.insert(ideaSources).values({ ideaId: idea!.id, kind: "google_maps", url, sharedByMemberId: memberId });
+    return { ideaId: idea!.id, merged: false };
+  });
+  await asService(db, (tx) => tx.update(trips).set({ lastActivityAt: new Date() }).where(eq(trips.id, args.tripId)));
+  return result;
+}
+
+export type { PlaceSearchResult };
