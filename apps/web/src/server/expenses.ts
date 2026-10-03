@@ -760,8 +760,7 @@ export async function updateExpense(db: Db, claims: Claims, input: UpdateExpense
     if (input.coveredBy !== undefined) {
       if (e.splitMethod === "just_me" || e.refundOfExpenseId) throw new ExpenseError("invalid", "Nobody else is on this expense.");
       const covers = validateCovers(ctx, input.coveredBy);
-      const { coveredBy: _old, ...rest } = config;
-      config = covers.length ? { ...rest, coveredBy: covers } : rest;
+      config = { ...config, coveredBy: covers };
     }
     if (input.gohPolicy !== undefined) {
       if (e.splitMethod !== "itemized") throw new ExpenseError("invalid");

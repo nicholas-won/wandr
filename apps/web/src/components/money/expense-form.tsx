@@ -19,6 +19,7 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { createExpenseAction, type CreateExpenseForm } from "@/app/t/[tripId]/money/actions";
 import type { DuplicateInfo, ExpenseFormContext } from "@/server/expenses";
+import { CoversEditor, coversList, PayersEditor, payerParts } from "./split-options";
 
 const CATEGORIES = [
   ["food_drink", "Food & drink"],
@@ -97,7 +98,11 @@ export function ExpenseForm({
   const [service, setService] = useState(toMajor(r?.serviceChargeMinor || null, currency));
   const [fees, setFees] = useState(toMajor(r?.feesMinor || null, currency));
   const [discount, setDiscount] = useState(toMajor(r?.discountMinor || null, currency));
-  const [difference, setDifference] = useState<"" | "even" | "payer">("");
+  // Q17: a gap left after the user checks the items is covered by the payer (no choice to make).
+  const [personal, setPersonal] = useState(false); // Q23c
+  const [multi, setMulti] = useState(false); // Q23a
+  const [paid, setPaid] = useState<Record<string, string>>({});
+  const [covers, setCovers] = useState<Record<string, string>>({}); // Q23b
   const [more, setMore] = useState(false);
   const [dups, setDups] = useState<DuplicateInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -146,15 +151,17 @@ export function ExpenseForm({
       setError(`Enter the amount you paid${currency === "JPY" || currency === "KRW" ? "" : ", like 42.50"}.`);
       return;
     }
-    if (!solo && method === "even" && people.length === 0) {
+    const shared = !solo && !personal;
+    if (shared && method === "even" && people.length === 0) {
       setError("Pick at least one person to split with.");
       return;
     }
-    if (method === "itemized") {
+    if (shared && method === "itemized") {
       if (items.length === 0) return setError("Add the items, or split evenly.");
       if (itemMinor.some((x) => x === null)) return setError("Check the item amounts.");
-      if (check && !check.balanced && !difference) return setError("Choose what to do with the difference.");
     }
+    const parts = payerParts(paid, currency, totalMinor);
+    if (shared && multi && (parts.bad || parts.left !== 0)) return setError("What each person paid has to add up to the total.");
     const form: CreateExpenseForm = {
       merchant,
       currency,
@@ -164,20 +171,18 @@ export function ExpenseForm({
       paidByMemberId: payer,
       stopId: stopId || null,
       ideaId: ideaId || null,
-      method: solo ? "just_me" : method,
-      participantIds: solo ? [] : people,
+      method: shared ? method : "just_me",
+      participantIds: shared ? people : [],
       receiptUploadId,
       confirmDuplicate,
-      ...(method === "itemized"
+      ...(personal ? { personal: true } : {}),
+      ...(shared && multi ? { payers: parts.parts } : {}),
+      ...(shared && coversList(covers).length ? { coveredBy: coversList(covers) } : {}),
+      ...(shared && method === "itemized"
         ? {
             items: items.map((i, k) => ({ label: i.label, amountMinor: itemMinor[k]!, quantity: i.quantity })),
             charges,
-            difference:
-              check && !check.balanced
-                ? difference === "payer"
-                  ? { assignTo: payer }
-                  : { splitEvenlyAmong: people }
-                : null,
+            difference: null, // Q17: the payer(s) cover any gap that's left
           }
         : {}),
     };
@@ -271,16 +276,30 @@ export function ExpenseForm({
       </div>
 
       {!solo ? (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="size-4" checked={personal} onChange={(e) => setPersonal(e.target.checked)} />
+          Just for me: track it privately, don&apos;t split it
+        </label>
+      ) : null}
+
+      {!solo && !personal ? (
         <>
           <fieldset className="space-y-2">
             <legend className="text-sm font-semibold">Paid by</legend>
-            <div className="flex flex-wrap gap-2">
-              {ctx.members.map((m) => (
-                <Chip key={m.id} on={payer === m.id} onClick={() => setPayer(m.id)} role="radio">
-                  {m.displayName}
-                </Chip>
-              ))}
-            </div>
+            {multi ? (
+              <PayersEditor people={ctx.members} currency={currency} totalMinor={totalMinor} amounts={paid} onChange={setPaid} />
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {ctx.members.map((m) => (
+                  <Chip key={m.id} on={payer === m.id} onClick={() => setPayer(m.id)} role="radio">
+                    {m.displayName}
+                  </Chip>
+                ))}
+              </div>
+            )}
+            <button type="button" className="text-sm font-semibold text-primary" onClick={() => setMulti(!multi)} aria-pressed={multi}>
+              {multi ? "One person paid" : "Several people paid"}
+            </button>
           </fieldset>
 
           <fieldset className="space-y-2">
@@ -306,14 +325,14 @@ export function ExpenseForm({
                 ? each !== null
                   ? `About ${fmt(each)} each${goh.some((g) => people.includes(g.id)) ? `; ${goh.map((g) => g.displayName).join(", ")} doesn't pay` : ""}.`
                   : "Everyone picked pays an equal share."
-                : "Everyone claims what they had. Tax and tip split in proportion. Unclaimed items count evenly for now."}
-              {!people.includes(payer) ? ` ${nameOf(payer)} paid but isn't in the split.` : ""}
+                : "Everyone claims what they had. Tax and tip split in proportion. Unclaimed items stay on you until someone claims them."}
+              {!multi && !people.includes(payer) ? ` ${nameOf(payer)} paid but isn't in the split.` : ""}
             </p>
           </fieldset>
         </>
       ) : null}
 
-      {method === "itemized" && !solo ? (
+      {method === "itemized" && !solo && !personal ? (
         <fieldset className="space-y-3 rounded-xl border p-4">
           <legend className="px-1 text-sm font-semibold">Items</legend>
           <ul className="space-y-2">
@@ -370,19 +389,28 @@ export function ExpenseForm({
           {check && !check.balanced ? (
             <div className="space-y-2 rounded-lg bg-secondary p-3 text-sm text-secondary-foreground" role="status">
               <p className="font-semibold">
-                Unassigned difference: {fmt(check.discrepancyMinor)} (items {fmt(check.computedTotalMinor)}, total {fmt(totalMinor!)})
+                {reading ? "We couldn't read this receipt correctly. " : ""}
+                Items come to {fmt(check.computedTotalMinor)}, but the total is {fmt(totalMinor!)}.
               </p>
-              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Handle the difference">
-                <Chip on={difference === "even"} onClick={() => setDifference("even")} role="radio">
-                  Split it evenly
-                </Chip>
-                <Chip on={difference === "payer"} onClick={() => setDifference("payer")} role="radio">
-                  {payer === ctx.me.memberId ? "I'll cover it" : `${nameOf(payer)} covers it`}
-                </Chip>
-              </div>
+              <p>
+                Check the items above, or add the missing ones. If you save with a difference, {multi ? "the payers cover" : payer === ctx.me.memberId ? "you cover" : `${nameOf(payer)} covers`}{" "}
+                the {fmt(Math.abs(check.discrepancyMinor))}.{" "}
+                <button type="button" className="font-semibold underline" onClick={() => setTotal(toMajor(check.computedTotalMinor, currency))}>
+                  Use {fmt(check.computedTotalMinor)} as the total
+                </button>
+              </p>
             </div>
           ) : null}
         </fieldset>
+      ) : null}
+
+      {!solo && !personal && people.length > 1 ? (
+        <details className="text-sm">
+          <summary className="cursor-pointer font-semibold text-primary">Someone covering someone&apos;s share?</summary>
+          <div className="mt-2">
+            <CoversEditor people={ctx.members.filter((m) => people.includes(m.id))} covers={covers} onChange={setCovers} />
+          </div>
+        </details>
       ) : null}
 
       <div>
@@ -460,7 +488,7 @@ export function ExpenseForm({
       ) : null}
 
       <Button type="submit" block size="lg" loading={pending}>
-        {solo ? "Save" : method === "itemized" ? "Save and ask for claims" : "Split it"}
+        {solo || personal ? "Save" : method === "itemized" ? "Save and ask for claims" : "Split it"}
       </Button>
 
       <Dialog open={dups !== null} onOpenChange={(o) => !o && setDups(null)} title="Same expense?">

@@ -1,4 +1,4 @@
-/** Organizer: who shares what. Late joiners (FR-12), drop-outs (FR-13), guest of honor (FR-90). */
+/** Organizer: who shares what. Late joiners (FR-12, Q22 itemized claims), drop-outs (FR-13), guest of honor (FR-90). */
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireFullOrRedirect } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { tripContext } from "@/server/context";
-import { dropOutChecklist, getMoneyOverview, lateJoinerChecklist, membershipReviews } from "@/server/expenses";
+import { dropOutChecklist, getMoneyOverview, lateJoinerChecklist, lateJoinerClaimables, membershipReviews } from "@/server/expenses";
 
 export default async function MoneyPeoplePage({ params }: PageProps<"/t/[tripId]/money/people">) {
   const { tripId } = await params;
@@ -25,6 +25,7 @@ export default async function MoneyPeoplePage({ params }: PageProps<"/t/[tripId]
     })),
   );
   const active = o.members.filter((m) => m.status === "active");
+  const claimables = await lateJoinerClaimables(db, claims, tripId); // Q22
 
   return (
     <main className="space-y-4">
@@ -33,7 +34,7 @@ export default async function MoneyPeoplePage({ params }: PageProps<"/t/[tripId]
       </Link>
       <h2 className="font-display text-2xl font-bold">Who shares what</h2>
       <div className="grid gap-4 lg:grid-cols-2">
-        {lists.length === 0 ? (
+        {lists.length === 0 && claimables.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nobody joined late or dropped out with shared costs. Nothing to review.</p>
         ) : (
           lists.map((r) => (
@@ -53,6 +54,29 @@ export default async function MoneyPeoplePage({ params }: PageProps<"/t/[tripId]
             </Card>
           ))
         )}
+        {claimables.map((c) => (
+          <Card key={`claim-${c.memberId}`}>
+            <CardHeader>
+              <CardTitle className="text-base">{c.name} can claim items</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                These receipts are from before {c.name === "You" ? "you" : c.name} joined. {c.name === "You" ? "You" : "They"} claim what{" "}
+                {c.name === "You" ? "you" : "they"} had, or you can add them with “Assign”.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-1 text-sm">
+                {c.receipts.map((r) => (
+                  <li key={r.expenseId}>
+                    <Link className="font-semibold underline" href={`${base}/${r.expenseId}`}>
+                      {r.merchant}
+                    </Link>
+                    {r.spentOn ? ` · ${r.spentOn}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        ))}
         {o.size === "group" ? (
           <Card>
             <CardHeader>
