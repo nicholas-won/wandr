@@ -1,9 +1,10 @@
-/** Expense detail (FR-62 claims, FR-68/69 edit or correct, FR-72 refunds, E-31 receipt photo). */
+/** Expense detail (FR-62 claims, FR-68/69 edit or correct, FR-72 refunds, MT3 receipt photo; Q16–Q19, Q23 flags). */
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import { money } from "@wandr/core";
 import { ItemClaims, ManageExpense } from "@/components/money/expense-controls";
+import { GuestOfHonorPolicy } from "@/components/money/split-options";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireFullOrRedirect } from "@/lib/auth/session";
@@ -41,12 +42,16 @@ export default async function ExpensePage({ params }: PageProps<"/t/[tripId]/mon
           <h2 className="font-display text-2xl font-bold">{d.merchant}</h2>
           <p className="text-3xl font-extrabold tabular-nums">{f(d.totalMinor)}</p>
           <p className="text-sm text-muted-foreground">
-            {d.size === "solo" ? CATEGORY_LABEL[d.category] : `${payerName} paid · ${CATEGORY_LABEL[d.category]}`}
+            {d.size === "solo" || d.personal
+              ? CATEGORY_LABEL[d.category]
+              : `${d.payers.length > 1 ? d.payers.map((p) => `${p.name} ${f(p.paidMinor)}`).join(", ") : payerName} paid · ${CATEGORY_LABEL[d.category]}`}
             {d.spentOn ? ` · ${d.spentOn}` : ""}
             {d.ideaTitle ? ` · ${d.ideaTitle}` : ""}
           </p>
           <div className="flex flex-wrap gap-1 pt-1">
             {d.locked ? <Badge>Settled</Badge> : null}
+            {d.personal ? <Badge variant="outline">Just you · private</Badge> : null}
+            {d.correctedTotalMinor !== null ? <Badge variant="outline">Corrected to {f(d.correctedTotalMinor)}</Badge> : null}
             {d.deleted ? <Badge variant="outline">Deleted</Badge> : null}
             {d.refundOf ? (
               <Badge variant="secondary">
@@ -58,15 +63,28 @@ export default async function ExpensePage({ params }: PageProps<"/t/[tripId]/mon
 
         <ManageExpense d={d} />
 
+        {d.gap ? (
+          <p className="flex items-start gap-2 rounded-xl bg-secondary px-4 py-3 text-sm text-secondary-foreground" role="status">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <span>
+              We couldn&apos;t read this receipt correctly: the items come to {f(d.totalMinor - d.gap.amountMinor)}, not {f(d.totalMinor)}.
+              {d.canManage && !d.locked ? " Fix the items with “Edit items”." : ""} Until then {d.gap.coveredBy === "You" ? "you cover" : `${d.gap.coveredBy} covers`}{" "}
+              the {f(Math.abs(d.gap.amountMinor))} difference.
+            </span>
+          </p>
+        ) : null}
+
+        {d.method === "itemized" ? <GuestOfHonorPolicy d={d} /> : null}
+
         {d.method === "itemized" ? (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">What did you have?</CardTitle>
-              {unclaimed && !d.locked ? (
+              {d.unclaimedOnUploader ? (
                 <p className="text-sm text-muted-foreground" role="status">
-                  {unclaimed} {unclaimed === 1 ? "item isn't" : "items aren't"} claimed yet; until then {unclaimed === 1 ? "it's" : "they're"} split
-                  evenly.
-                  {d.uploaderId === d.me.memberId ? " Assign them, or have the payer cover them." : ""}
+                  {unclaimed} {unclaimed === 1 ? "item isn't" : "items aren't"} claimed yet; until then {unclaimed === 1 ? "it's" : "they're"} on{" "}
+                  {d.unclaimedOnUploader.uploaderName === "You" ? "you" : d.unclaimedOnUploader.uploaderName}, who added the receipt.
+                  {d.canManage ? " Assign them, or have the payer cover them." : ""}
                 </p>
               ) : null}
             </CardHeader>
@@ -96,7 +114,7 @@ export default async function ExpensePage({ params }: PageProps<"/t/[tripId]/mon
                   {d.validation.warnings.map((w) => (
                     <li key={w.code} className="flex items-start gap-2 text-sm text-muted-foreground">
                       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-                      {w.code === "DISCREPANCY" ? `Difference of ${f(w.amountMinor ?? 0)} handled as chosen when saved.` : w.message}
+                      {w.code === "DISCREPANCY" ? `Difference of ${f(w.amountMinor ?? 0)}; see above.` : w.message}
                     </li>
                   ))}
                 </ul>
@@ -146,6 +164,17 @@ export default async function ExpensePage({ params }: PageProps<"/t/[tripId]/mon
                     .map((m) => m.displayName)
                     .join(", ")}{" "}
                   (guest of honor) doesn&apos;t pay.
+                </p>
+              ) : null}
+              {d.coveredBy.map((c) => (
+                <p key={c.memberId} className="mt-2 text-xs text-muted-foreground">
+                  {c.coveredByName} {c.coveredByName === "You" ? "cover" : "covers"} {c.name === "You" ? "your" : `${c.name}'s`} share.
+                </p>
+              ))}
+              {d.rounding ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Rounded: {f(d.rounding.leftoverMinor)} that didn&apos;t split evenly went to {d.rounding.name ?? "the first people on the list"}
+                  {d.rounding.name ? (d.rounding.name === "You" ? " (you added it)" : " (who added it)") : ""}.
                 </p>
               ) : null}
               {!d.participants.includes(d.payerId) && d.method === "even" ? (

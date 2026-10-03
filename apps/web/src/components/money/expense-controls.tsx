@@ -22,6 +22,7 @@ import {
   type MoneyResult,
 } from "@/app/t/[tripId]/money/actions";
 import type { ExpenseDetail } from "@/server/expenses";
+import { CoversEditor, coversList, EditItems, PayersEditor, payerParts } from "./split-options";
 
 function useRun() {
   const [pending, start] = useTransition();
@@ -153,7 +154,13 @@ export function ItemClaims({ d, item }: { d: ExpenseDetail; item: ExpenseDetail[
 
 export function ManageExpense({ d }: { d: ExpenseDetail }) {
   const { pending, run, toast, router } = useRun();
-  const [mode, setMode] = useState<null | "edit" | "correct" | "refund">(null);
+  const [mode, setMode] = useState<null | "edit" | "correct" | "refund" | "items">(null);
+  const [multi, setMulti] = useState(d.payers.length > 1);
+  const [paid, setPaid] = useState<Record<string, string>>(() =>
+    Object.fromEntries(d.payers.map((p) => [p.memberId, money.minorToDecimalString(p.paidMinor, d.currency)])),
+  );
+  const [covers, setCovers] = useState<Record<string, string>>(() => Object.fromEntries(d.coveredBy.map((c) => [c.memberId, c.coveredById])));
+  const shared = !d.personal && d.method !== "just_me" && !d.refundOf && d.size !== "solo";
   const cur = d.currency;
   const [total, setTotal] = useState(money.minorToDecimalString(Math.abs(d.totalMinor), cur));
   const [merchant, setMerchant] = useState(d.merchant);
@@ -206,7 +213,7 @@ export function ManageExpense({ d }: { d: ExpenseDetail }) {
   ) : null;
 
   const payerPicker =
-    d.size !== "solo" ? (
+    d.size !== "solo" && !d.personal ? (
       <div className="space-y-2">
         <Label htmlFor="payer">Paid by</Label>
         <select id="payer" value={payer} onChange={(e) => setPayer(e.target.value)} className="h-12 w-full rounded-lg border border-input bg-card px-3">
@@ -226,6 +233,11 @@ export function ManageExpense({ d }: { d: ExpenseDetail }) {
           <Button size="sm" variant="outline" onClick={() => setMode("edit")}>
             Edit
           </Button>
+          {d.method === "itemized" ? (
+            <Button size="sm" variant="outline" onClick={() => setMode("items")}>
+              Edit items
+            </Button>
+          ) : null}
           <Button size="sm" variant="ghost" loading={pending} onClick={del}>
             Delete
           </Button>
@@ -249,14 +261,17 @@ export function ManageExpense({ d }: { d: ExpenseDetail }) {
             e.preventDefault();
             const t = canEditTotal ? parse(total, cur) : undefined;
             if (canEditTotal && (t === null || t === undefined || t <= 0)) return setError("Enter the amount paid.");
+            const parts = payerParts(paid, cur, canEditTotal ? t! : d.totalMinor);
+            if (shared && multi && (parts.bad || parts.left !== 0)) return setError("What each person paid has to add up to the total.");
             setError(null);
             run(
               () =>
                 updateExpenseAction(d.tripId, d.id, {
                   merchant,
-                  paidByMemberId: payer,
+                  ...(shared && multi ? { payers: parts.parts } : { paidByMemberId: payer }),
                   ...(canEditTotal ? { totalMinor: t! } : {}),
                   ...(canEditPeople ? { participantIds: people } : {}),
+                  ...(shared ? { coveredBy: coversList(covers) } : {}),
                 }),
               (r) => {
                 if (r.ok && r.message) toast({ title: r.message });
@@ -275,8 +290,29 @@ export function ManageExpense({ d }: { d: ExpenseDetail }) {
               <Input id="edit-total" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} />
             </div>
           ) : null}
-          {payerPicker}
+          {shared && multi ? (
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-semibold">Who paid what</legend>
+              <PayersEditor people={active} currency={cur} totalMinor={canEditTotal ? parse(total, cur) : d.totalMinor} amounts={paid} onChange={setPaid} />
+            </fieldset>
+          ) : (
+            payerPicker
+          )}
+          {shared ? (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" className="size-4" checked={multi} onChange={(e) => setMulti(e.target.checked)} />
+              Several people paid
+            </label>
+          ) : null}
           {peoplePicker}
+          {shared ? (
+            <details className="text-sm" open={d.coveredBy.length > 0}>
+              <summary className="cursor-pointer font-semibold">Someone covering someone&apos;s share?</summary>
+              <div className="mt-2">
+                <CoversEditor people={active.filter((m) => d.shares.some((s) => s.memberId === m.id) || d.coveredBy.some((c) => c.memberId === m.id))} covers={covers} onChange={setCovers} />
+              </div>
+            </details>
+          ) : null}
           {error ? <p role="alert" className="text-sm font-semibold text-destructive">{error}</p> : null}
           <p className="text-xs text-muted-foreground">Everyone on it sees the change; edits are logged.</p>
           <Button type="submit" block loading={pending}>
@@ -284,6 +320,8 @@ export function ManageExpense({ d }: { d: ExpenseDetail }) {
           </Button>
         </form>
       </Dialog>
+
+      {mode === "items" ? <EditItems d={d} open onOpenChange={(o) => !o && setMode(null)} /> : null}
 
       <Dialog
         open={mode === "correct"}

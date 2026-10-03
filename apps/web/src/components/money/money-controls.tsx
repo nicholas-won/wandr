@@ -15,6 +15,7 @@ import {
   displayCurrencyAction,
   guestOfHonorAction,
   recordPaymentAction,
+  resolveDuplicateAction,
   type MoneyResult,
 } from "@/app/t/[tripId]/money/actions";
 
@@ -108,6 +109,36 @@ export function RecordPayment({
 }
 
 /** FR-66: the person's display currency for the approximate total. */
+/** Q24: an organizer resolves two receipts whose line items look like the same bill. */
+export function ResolveDuplicate({
+  tripId,
+  a,
+  b,
+}: {
+  tripId: string;
+  a: { id: string; merchant: string; uploadedBy: string; locked: boolean };
+  b: { id: string; merchant: string; uploadedBy: string; locked: boolean };
+}) {
+  const { pending, run } = useRun();
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button size="sm" variant="outline" loading={pending} onClick={() => run(() => resolveDuplicateAction(tripId, a.id, b.id, "keep_both"))}>
+        Keep both
+      </Button>
+      {!b.locked ? (
+        <Button size="sm" variant="ghost" loading={pending} onClick={() => run(() => resolveDuplicateAction(tripId, a.id, b.id, "delete_second"))}>
+          Delete {b.uploadedBy === "You" ? "yours" : `${b.uploadedBy}'s`}
+        </Button>
+      ) : null}
+      {!a.locked ? (
+        <Button size="sm" variant="ghost" loading={pending} onClick={() => run(() => resolveDuplicateAction(tripId, a.id, b.id, "delete_first"))}>
+          Delete {a.uploadedBy === "You" ? "yours" : `${a.uploadedBy}'s`}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export function DisplayCurrency({ value, options }: { value: string; options: string[] }) {
   const { pending, run } = useRun();
   return (
