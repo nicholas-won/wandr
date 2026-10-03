@@ -15,6 +15,7 @@
   "dependencies": {
     "@expo-google-fonts/bricolage-grotesque": "^0.4.1",
     "@expo/vector-icons": "^15.1.1",
+    "@react-native-community/datetimepicker": "9.1.0",
     "@wandr/api-contract": "workspace:*",
     "@wandr/core": "workspace:*",
     "expo": "~57.0.26",
