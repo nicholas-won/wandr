@@ -13,7 +13,7 @@ async function startTrip(page: Page) {
   await form.locator('input[name="destinations"]').fill("Lisbon");
   await form.locator('input[name="name"]').fill("Nick & Sam");
   await form.getByRole("button", { name: "Create trip" }).click();
-  await expect(page.getByRole("heading", { name: "Nick & Sam" }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Nick & Sam" }).first()).toBeVisible({ timeout: 30_000 }); // first compile of the trip page on a cold dev server
 }
 
 test("duo trip: idea, invite, personal link, open votes", async ({ page, browser }, info) => {
