@@ -41,7 +41,7 @@ import { classifyInput, createClaudeModel, createPlacesClient, resolveIdea, type
 import { fileIdea, type VoteValue } from "@wandr/core";
 import { effectiveSort, foldName, isPending, type LibraryCategory, type SaveLike } from "@wandr/core/library";
 import { countryName } from "@/components/library/format";
-import { cardBlurb, cardPhoto, locationLabel, placePhotosEnabled, readCache, type CardVisualFields } from "@/lib/idea-visual";
+import { cardBlurb, cardPhoto, locationLabel, placePhotosEnabled, readCache, sourceThumb, type CardVisualFields } from "@/lib/idea-visual";
 import { dbCache } from "./ideas";
 import { createTrip } from "./trips";
 
@@ -356,7 +356,6 @@ type SourceRow = typeof savedIdeaSources.$inferSelect;
 
 function toView(s: SaveRow, sources: SourceRow[], note?: { note: string | null; somedayPriority: VoteValue | null }): SaveView {
   const first = [...sources].sort((a, b) => +a.createdAt - +b.createdAt)[0];
-  const withThumb = sources.find((x) => x.thumbnailUrl);
   const e = effectiveSort(s);
   const caption = sources.find((x) => x.kind !== "text" && x.caption)?.caption ?? null;
   const blurb = cardBlurb(s.summary, caption);
@@ -376,7 +375,7 @@ function toView(s: SaveRow, sources: SourceRow[], note?: { note: string | null; 
     lat: s.lat,
     lng: s.lng,
     needsReview: s.extraction === "needs_review",
-    thumbnailUrl: withThumb?.thumbnailUrl ?? null,
+    thumbnailUrl: sourceThumb("save", sources),
     sourceUrl: first?.url ?? null,
     sourceKind: first?.kind ?? null,
     creatorHandle: first?.creatorHandle ?? null,

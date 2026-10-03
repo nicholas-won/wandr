@@ -5,7 +5,8 @@
  * add ideas), then resolveIdeaJob fills it in the background as the service. Fetched captions
  * are stored as data only; the AI package treats them as untrusted (C-20/C-21).
  */
-import { and, eq, ne, or } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, asc, eq, ne, or } from "drizzle-orm";
 import {
   aiImports,
   asService,
@@ -24,9 +25,19 @@ import {
   createClaudeModel,
   createPlacesClient,
   resolveIdea,
+  mapsUrlForPlaceId,
+  type PlacesClient,
+  type PlaceSearchResult,
   type ResolveCache,
   type ResolvedIdea,
 } from "@wandr/ai";
+import {
+  checkScreenshot,
+  loadScreenshotForModel,
+  screenshotStorage,
+  type ScreenshotStorage,
+} from "@/lib/storage/screenshots";
+import { biasFor, fetchPickedPlace, pickedFields, searchPlaces, stopForPick, type PlaceSearchOutcome } from "./place-search";
 import { DEFAULT_TRIP_NAME } from "./trips";
 
 /** First line of a typed idea becomes the title (FR-25 plain-text ideas). */
@@ -72,6 +83,70 @@ export async function addIdea(
   });
 }
 
+/** A capture the person can fix (bad image, not a member, …). `message` is safe to show. */
+export class IdeaInputError extends Error {
+  constructor(
+    public readonly code: "invalid" | "not_found" | "signin",
+    message: string = code,
+  ) {
+    super(message);
+    this.name = "IdeaInputError";
+  }
+}
+
+/** Is the caller a verified, active member of this trip? (personal links can't add, FR-5) */
+async function myFullMemberId(db: Db, claims: Claims, tripId: string): Promise<string | null> {
+  if (!claims.sub || !/^[0-9a-f-]{36}$/.test(tripId)) return null;
+  return withSession(db, claims, async (tx) => {
+    const [m] = await tx
+      .select({ id: members.id })
+      .from(members)
+      .where(and(eq(members.tripId, tripId), eq(members.userId, claims.sub!), eq(members.status, "active")));
+    return m?.id ?? null;
+  });
+}
+
+/**
+ * FR-20: upload a screenshot. The bytes are sniffed and stored privately (never public), then a
+ * "processing" card appears at once and resolveIdeaJob reads the on-screen text (FR-30 step 2).
+ * An optional typed note travels with it as untrusted caption data (C-21).
+ */
+export async function addScreenshotIdea(
+  db: Db,
+  claims: Claims,
+  args: { tripId: string; bytes: Uint8Array; note?: string },
+  storage: ScreenshotStorage = screenshotStorage(),
+): Promise<{ ideaId: string }> {
+  if (!claims.sub) throw new IdeaInputError("signin");
+  const check = checkScreenshot(args.bytes);
+  if (!check.ok) throw new IdeaInputError("invalid", check.error);
+  // Membership first: nothing is written anywhere for someone who can't add ideas.
+  const memberId = await myFullMemberId(db, claims, args.tripId);
+  if (!memberId) throw new IdeaInputError("not_found");
+  const path = `${args.tripId}/${randomUUID()}.${check.ext}`;
+  await storage.put(path, args.bytes, check.contentType);
+  const note = args.note?.trim().slice(0, 1000) || null;
+  return withSession(db, claims, async (tx) => {
+    const [idea] = await tx
+      .insert(ideas)
+      .values({
+        tripId: args.tripId,
+        title: note ? note.split("\n")[0]!.slice(0, 120) : "Screenshot idea",
+        extraction: "processing",
+        createdByMemberId: memberId,
+      })
+      .returning({ id: ideas.id });
+    await tx.insert(ideaSources).values({
+      ideaId: idea!.id,
+      kind: "screenshot",
+      storagePath: path,
+      caption: note,
+      sharedByMemberId: memberId,
+    });
+    return { ideaId: idea!.id };
+  });
+}
+
 /** extraction_cache-backed cache (FR-34). Values carry their own expiry. */
 export function dbCache(db: Db): ResolveCache {
   return {
@@ -96,12 +171,21 @@ export function dbCache(db: Db): ResolveCache {
 }
 
 /** Background job: resolve one idea and file it. Never throws. */
-export async function resolveIdeaJob(db: Db, ideaId: string, deps: { resolver?: typeof resolveIdea } = {}) {
+export async function resolveIdeaJob(
+  db: Db,
+  ideaId: string,
+  deps: { resolver?: typeof resolveIdea; storage?: ScreenshotStorage } = {},
+) {
   try {
     const ctx = await asService(db, async (tx) => {
       const [idea] = await tx.select().from(ideas).where(eq(ideas.id, ideaId));
       if (!idea) return null;
-      const [source] = await tx.select().from(ideaSources).where(eq(ideaSources.ideaId, ideaId));
+      const [source] = await tx
+        .select()
+        .from(ideaSources)
+        .where(eq(ideaSources.ideaId, ideaId))
+        .orderBy(asc(ideaSources.createdAt))
+        .limit(1);
       const [trip] = await tx.select({ name: trips.name }).from(trips).where(eq(trips.id, idea.tripId));
       const stopRows = await tx
         .select({ id: stops.id, name: stops.name, lat: stops.lat, lng: stops.lng })
@@ -110,12 +194,29 @@ export async function resolveIdeaJob(db: Db, ideaId: string, deps: { resolver?: 
       return { idea, source, tripName: trip?.name ?? null, stops: stopRows };
     });
     if (!ctx || !ctx.source) return;
+    const isShot = ctx.source.kind === "screenshot";
+    // FR-30 step 2: the image goes to the model inside the untrusted data block (C-21).
+    const screenshot =
+      isShot && ctx.source.storagePath
+        ? await loadScreenshotForModel(deps.storage ?? screenshotStorage(), ctx.source.storagePath)
+        : null;
+    if (isShot && !screenshot && !ctx.source.caption) {
+      // Unreadable or too large for the model, and nothing typed: ask a person (FR-23).
+      await asService(db, (tx) => tx.update(ideas).set({ extraction: "needs_review" }).where(eq(ideas.id, ideaId)));
+      return;
+    }
     const raw = ctx.source.url
       ? [ctx.source.url, ctx.source.caption].filter(Boolean).join("\n")
-      : (ctx.source.caption ?? ctx.idea.title);
+      : isShot
+        ? (ctx.source.caption ?? "")
+        : (ctx.source.caption ?? ctx.idea.title);
     const resolver = deps.resolver ?? resolveIdea;
     const result = await resolver(
-      { raw, rateLimitKeys: [`trip:${ctx.idea.tripId}`, `member:${ctx.source.sharedByMemberId}`] },
+      {
+        raw,
+        screenshot: screenshot ?? undefined,
+        rateLimitKeys: [`trip:${ctx.idea.tripId}`, `member:${ctx.source.sharedByMemberId}`],
+      },
       { stops: ctx.stops, tripName: ctx.tripName },
       { model: createClaudeModel(), places: createPlacesClient(), cache: dbCache(db) },
     );
@@ -124,6 +225,16 @@ export async function resolveIdeaJob(db: Db, ideaId: string, deps: { resolver?: 
     console.error("[resolveIdeaJob]", ideaId, err);
     await asService(db, (tx) => tx.update(ideas).set({ extraction: "failed" }).where(eq(ideas.id, ideaId)));
   }
+}
+
+/**
+ * FR-L22: how an import attempt is logged. A screenshot is a new AI read even with no typed
+ * text; a typed idea alone isn't.
+ */
+export function importKind(r: ResolvedIdea, screenshot: boolean): "text" | "cache_hit" | "failed" | "extraction" {
+  if (r.state === "failed") return "failed";
+  if (screenshot) return "extraction";
+  return r.source.kind === "text" ? "text" : r.fromCache ? "cache_hit" : "extraction";
 }
 
 export async function applyResolution(
@@ -144,11 +255,18 @@ export async function applyResolution(
       .update(ideaSources)
       .set({
         normalizedUrl: r.source.normalizedUrl,
-        caption: r.source.caption,
+        // Keep a typed note (e.g. on a screenshot) when the source had no caption of its own.
+        ...(r.source.caption != null ? { caption: r.source.caption } : {}),
         thumbnailUrl: r.source.thumbnailUrl,
         creatorHandle: r.source.creatorHandle,
       })
       .where(eq(ideaSources.ideaId, ideaId));
+    const [stored] = await tx
+      .select({ kind: ideaSources.kind })
+      .from(ideaSources)
+      .where(eq(ideaSources.ideaId, ideaId))
+      .limit(1);
+    const isShot = stored?.kind === "screenshot";
 
     // FR-22: merge duplicates (same place, or same link) into the earlier card.
     const dupConds = [];
@@ -221,7 +339,7 @@ export async function applyResolution(
           userId: m.userId,
           tripId,
           ideaId: target ?? ideaId,
-          kind: r.source.kind === "text" ? "text" : r.fromCache ? "cache_hit" : r.state === "failed" ? "failed" : "extraction",
+          kind: importKind(r, isShot),
           normalizedUrl: r.source.normalizedUrl,
         });
       }

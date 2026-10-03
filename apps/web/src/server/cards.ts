@@ -14,7 +14,7 @@ import {
   type TripSize,
   type VoteValue,
 } from "@wandr/core";
-import { cardBlurb, cardPhoto, locationLabel, readCache, type CardVisualFields } from "@/lib/idea-visual";
+import { cardBlurb, cardPhoto, locationLabel, readCache, sourceThumb, type CardVisualFields } from "@/lib/idea-visual";
 
 export interface IdeaRow {
   id: string;
@@ -41,8 +41,12 @@ export interface IdeaRow {
 }
 
 export interface SourceRow {
+  /** Row id: addresses an uploaded screenshot (FR-20). */
+  id?: string;
   ideaId: string;
   kind: string;
+  /** Private screenshot object, served by /api/screenshot after an RLS check. */
+  storagePath?: string | null;
   url: string | null;
   thumbnailUrl: string | null;
   /** Untrusted source text; only its sanitized first line is shown (C-21). */
@@ -164,7 +168,7 @@ export function buildIdeaCards(args: {
         (idea.extraction === "resolved" && (idea.confidence ?? 1) < REVIEW_THRESHOLD),
       notAPlace: idea.extraction === "not_a_place",
       permanentlyClosed: idea.permanentlyClosed,
-      thumbnailUrl: srcs.find((s) => s.thumbnailUrl)?.thumbnailUrl ?? null,
+      thumbnailUrl: sourceThumb("idea", srcs),
       ...cardPhoto({
         kind: "idea",
         id: idea.id,
