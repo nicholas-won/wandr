@@ -813,21 +813,28 @@ export async function boardMemberOnBoard(db: Db, boardMemberId: string, boardId:
 // Saves → trips (FR-L11, FR-L12, FR-L13; copies, LB-4)
 // ---------------------------------------------------------------------------
 
-export type SendResult = { sent: number; merged: number; skipped: number; ideaIds: string[] };
+export type SendResult = {
+  sent: number;
+  merged: number;
+  skipped: number;
+  ideaIds: string[];
+  /** Trip ideas copied from saves still being sorted; the caller queues their resolution (D69). */
+  resolveIdeaIds: string[];
+};
 
 /**
  * FR-L12: copy saves into a trip the caller belongs to (verified session; RLS checks the trip
  * and that every save is the caller's own, LB-5). Each copy is filed to a Stop (FR-S6): by
  * location, else by city name, else Unsorted ("New city?"). A save whose place is already in the
  * trip adds its source links to that idea instead (FR-22). Never counts as an AI import (FR-L22).
- * Saves still being sorted are skipped.
+ * Saves still being sorted are sent too and resolve in the trip (D69).
  */
 export async function sendSavesToTrip(
   db: Db,
   userId: string,
   args: { tripId: string; savedIdeaIds: string[]; boardId?: string | null },
 ): Promise<SendResult> {
-  const out: SendResult = { sent: 0, merged: 0, skipped: 0, ideaIds: [] };
+  const out: SendResult = { sent: 0, merged: 0, skipped: 0, ideaIds: [], resolveIdeaIds: [] };
   if (args.savedIdeaIds.length === 0) return out;
   await withSession(db, own(userId), async (tx) => {
     const [me] = await tx
@@ -874,10 +881,13 @@ export async function sendSavesToTrip(
       : [];
 
     for (const s of rows) {
-      if (isPending(s) || s.candidates) {
+      // D69 / C-LB6: saves still being sorted go now and fill in once resolved. Unpicked
+      // listicles still wait for the sharer's pick (FR-24).
+      if (s.candidates) {
         out.skipped++;
         continue;
       }
+      const pending = isPending(s);
       const e = effectiveSort(s);
       const srcs = sources.filter((x) => x.savedIdeaId === s.id);
       // FR-22: the place is already an idea in this trip → add the links there.
@@ -923,12 +933,13 @@ export async function sendSavesToTrip(
             priceLevel: s.priceLevel,
             confidence: s.confidence,
             permanentlyClosed: s.permanentlyClosed,
-            extraction: s.extraction,
+            extraction: pending ? "processing" : s.extraction,
             sourceSavedIdeaId: s.userId ? s.id : null,
           })
           .returning({ id: ideas.id });
         ideaId = idea!.id;
         out.sent++;
+        if (pending) out.resolveIdeaIds.push(ideaId);
       }
       const toCopy = srcs.length ? srcs : [];
       if (toCopy.length) {
@@ -1058,6 +1069,24 @@ export async function saveTripIdeaToLibrary(
         extraction: idea.extraction === "failed" ? "needs_review" : idea.extraction,
       })
       .returning({ id: savedIdeas.id });
+    // D69 / C-LB5: keep the original links (TikTok etc.) so the save still jogs memory and
+    // credits the creator (§11).
+    const srcs = await tx.select().from(ideaSources).where(eq(ideaSources.ideaId, idea.id));
+    const linked = srcs.filter((x) => x.url);
+    if (linked.length) {
+      await tx.insert(savedIdeaSources).values(
+        linked.map((x) => ({
+          savedIdeaId: row!.id,
+          kind: x.kind,
+          url: x.url,
+          normalizedUrl: x.normalizedUrl,
+          caption: x.caption,
+          thumbnailUrl: x.thumbnailUrl,
+          creatorHandle: x.creatorHandle,
+          addedByUserId: userId,
+        })),
+      );
+    }
     return { savedIdeaId: row!.id, already: false };
   });
 }

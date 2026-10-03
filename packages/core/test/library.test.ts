@@ -77,7 +77,7 @@ describe("place keys", () => {
 describe("tripReadiness (FR-L10, LB-9)", () => {
   it("is ready at 8 places with ≥1 food and ≥1 activity", () => {
     const r = tripReadiness(readyLisbon());
-    expect(r).toMatchObject({ ready: true, places: 8, food: 1, activities: 1 });
+    expect(r).toMatchObject({ ready: true, places: 8 });
     expect(r.missing).toEqual({ places: 0, food: 0, activities: 0 });
   });
 
@@ -90,13 +90,15 @@ describe("tripReadiness (FR-L10, LB-9)", () => {
   it("needs a food place and an activity", () => {
     const noFood = [save({ category: "activity" }), ...Array.from({ length: 9 }, () => save({ category: "sight" }))];
     expect(tripReadiness(noFood)).toMatchObject({ ready: false, missing: { places: 0, food: 1, activities: 0 } });
-    const noActivity = [save({ category: "food" }), ...Array.from({ length: 9 }, () => save({ category: "drink" }))];
+    const noActivity = [save({ category: "food" }), ...Array.from({ length: 9 }, () => save({ category: "shopping" }))];
     expect(tripReadiness(noActivity)).toMatchObject({ ready: false, missing: { activities: 1 } });
   });
 
-  it("drinks are not food and sights are not activities (strict default)", () => {
-    expect(DEFAULT_TRIP_READY.foodCategories).toEqual(["food"]);
-    expect(DEFAULT_TRIP_READY.activityCategories).toEqual(["activity"]);
+  it("drinks count as food and sights count as activities (D69)", () => {
+    expect(DEFAULT_TRIP_READY.foodCategories).toEqual(["food", "drink"]);
+    expect(DEFAULT_TRIP_READY.activityCategories).toEqual(["activity", "sight"]);
+    const drinksAndSights = [save({ category: "drink" }), save({ category: "sight" }), ...Array.from({ length: 6 }, () => save({ category: "shopping" }))];
+    expect(tripReadiness(drinksAndSights).ready).toBe(true);
   });
 
   it("closed places never count (LB-9)", () => {
@@ -122,8 +124,9 @@ describe("tripReadiness (FR-L10, LB-9)", () => {
 
   it("uses category overrides", () => {
     const saves = readyLisbon();
-    saves[0] = { ...saves[0]!, categoryOverride: "drink" };
-    expect(tripReadiness(saves).food).toBe(0);
+    const before = tripReadiness(saves).food;
+    saves[0] = { ...saves[0]!, categoryOverride: "shopping" }; // the first save is a food place
+    expect(tripReadiness(saves).food).toBe(before - 1);
   });
 
   it("accepts a custom rule", () => {
@@ -205,29 +208,19 @@ describe("groupByCategory", () => {
   });
 });
 
-describe("preselectForTrip (FR-L11)", () => {
-  it("preselects Must-do saves only", () => {
+describe("preselectForTrip (FR-L11, D69)", () => {
+  it("brings every save so the group decides in the trip", () => {
     const a = { ...save(), priority: "must" as const };
-    const b = { ...save(), priority: "down" as const };
-    const c = { ...save(), priority: null };
-    expect(preselectForTrip([a, b, c])).toEqual([a.id]);
+    const b = { ...save(), priority: "pass" as const };
+    const c = { ...save({ extraction: "processing" }), priority: null };
+    const d = { ...save({ extraction: "not_a_place" }), priority: null };
+    expect(preselectForTrip([a, b, c, d])).toEqual([a.id, b.id, c.id, d.id]);
   });
 
-  it("never preselects closed or pending saves", () => {
-    const a = { ...save({ permanentlyClosed: true }), priority: "must" as const };
-    const b = { ...save({ extraction: "processing" }), priority: "must" as const };
-    expect(preselectForTrip([a, b])).toEqual([]);
-  });
-
-  it("with no priorities at all, preselects every open place", () => {
-    const a = save();
-    const b = save({ permanentlyClosed: true });
-    const c = save({ extraction: "not_a_place" });
-    expect(preselectForTrip([a, b, c])).toEqual([a.id]);
-  });
-
-  it("with priorities but no Must-do, preselects nothing", () => {
-    expect(preselectForTrip([{ ...save(), priority: "pass" }])).toEqual([]);
+  it("leaves permanently closed places behind (LB-9)", () => {
+    const open = save();
+    const closed = save({ permanentlyClosed: true });
+    expect(preselectForTrip([open, closed])).toEqual([open.id]);
   });
 });
 

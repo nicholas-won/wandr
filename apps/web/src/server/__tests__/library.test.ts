@@ -294,14 +294,16 @@ describe("saves → trips (FR-L11, FR-L12, LB-4)", () => {
     expect(r).toMatchObject({ sent: 0, skipped: 1 });
   });
 
-  it("skips saves still being sorted", async () => {
+  it("sends saves still being sorted; they resolve in the trip (D69 / C-LB6)", async () => {
     const s = await setup();
     const { savedIdeaId } = await saveToLibrary(s.d, s.nick, { raw: "https://vm.tiktok.com/zzz" });
     const t = await createTrip(s.d, { userId: s.nick, ownerName: "Nick", name: "x" });
-    expect(await sendSavesToTrip(s.d, s.nick, { tripId: t.tripId, savedIdeaIds: [savedIdeaId] })).toMatchObject({
-      sent: 0,
-      skipped: 1,
-    });
+    const r = await sendSavesToTrip(s.d, s.nick, { tripId: t.tripId, savedIdeaIds: [savedIdeaId] });
+    expect(r).toMatchObject({ sent: 1, skipped: 0 });
+    expect(r.resolveIdeaIds).toEqual(r.ideaIds);
+    const view = await getTripView(s.d, { sub: s.nick }, t.tripId);
+    expect(view!.ideas[0]!.processing).toBe(true);
+    expect(view!.ideas[0]!.sourceUrl).toContain("vm.tiktok.com");
   });
 
   it("starts a trip from a city with the city as its Stop (FR-L11, FR-1a)", async () => {
@@ -319,7 +321,7 @@ describe("saves → trips (FR-L11, FR-L12, LB-4)", () => {
 });
 
 describe("Save for next time (FR-L13)", () => {
-  it("copies the place only, and dedupes", async () => {
+  it("copies the place and its source links, and dedupes (D69 / C-LB5)", async () => {
     const s = await setup();
     const t = await createTrip(s.d, { userId: s.nick, ownerName: "Nick", name: "Lisbon", city: "Lisbon" });
     const [idea] = await asService(s.d, (tx) =>
@@ -328,12 +330,15 @@ describe("Save for next time (FR-L13)", () => {
         .values({ tripId: t.tripId, title: "Ramen", category: "food", placeId: "r1", cityHint: "Lisbon", extraction: "resolved", placeCache: { countryCode: "pt" } })
         .returning(),
     );
+    await asService(s.d, (tx) =>
+      tx.insert(ideaSources).values({ ideaId: idea!.id, kind: "tiktok", url: "https://www.tiktok.com/@ramen/video/1", creatorHandle: "@ramen" }),
+    );
     const r1 = await saveTripIdeaToLibrary(s.d, s.nick, { tripId: t.tripId, ideaId: idea!.id });
     expect(r1).toMatchObject({ already: false });
     const r2 = await saveTripIdeaToLibrary(s.d, s.nick, { tripId: t.tripId, ideaId: idea!.id });
     expect(r2).toEqual({ savedIdeaId: r1!.savedIdeaId, already: true });
     const [v] = await listMySaves(s.d, s.nick);
-    expect(v).toMatchObject({ title: "Ramen", country: "PT", regionOrCity: "Lisbon", sourceCount: 0, priority: null });
+    expect(v).toMatchObject({ title: "Ramen", country: "PT", regionOrCity: "Lisbon", sourceCount: 1, priority: null });
   });
 
   it("a non-member can't copy a trip's idea", async () => {

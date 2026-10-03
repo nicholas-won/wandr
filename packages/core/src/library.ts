@@ -152,15 +152,14 @@ export interface TripReadyRule {
 }
 
 /**
- * FR-L10 default (8+ places incl. ≥1 food and ≥1 activity). [OPEN] §14: the threshold is a
- * starting number. Strict reading: only `food` is food (not drinks) and only `activity` is an
- * activity (not sights).
+ * FR-L10 default (8+ places incl. ≥1 food and ≥1 activity). D69 (LB1): drinks count as food and
+ * sights count as activities. The badge is only a nudge: any city or board can become a trip.
  */
 export const DEFAULT_TRIP_READY: TripReadyRule = {
   minPlaces: 8,
-  foodCategories: ["food"],
+  foodCategories: ["food", "drink"],
   minFood: 1,
-  activityCategories: ["activity"],
+  activityCategories: ["activity", "sight"],
   minActivity: 1,
 };
 
@@ -292,18 +291,14 @@ export function groupByCategory<T extends SaveLike>(saves: readonly T[]): { cate
 
 /**
  * FR-L11: which saves start out selected when making a trip from a city or board.
- * - Must-do saves are preselected; permanently closed and Skip saves never are.
- * - [OPEN] If none of the saves has a someday priority at all, every open, sorted save is
- *   preselected (otherwise "one tap" would make an empty trip).
+ * D69 (C-LB2): every save comes along except permanently closed places; the trip decides.
  */
 export function preselectForTrip(
   saves: readonly (SaveLike & { priority?: VoteValue | null })[],
 ): string[] {
-  const eligible = saves.filter((s) => !s.permanentlyClosed && !isPending(s) && s.extraction !== "failed");
-  const must = eligible.filter((s) => s.priority === "must");
-  if (must.length) return must.map((s) => s.id);
-  if (eligible.some((s) => s.priority)) return [];
-  return eligible.filter((s) => s.extraction !== "not_a_place").map((s) => s.id);
+  // D69 / C-LB2: bring everything; the group decides in the trip. Only places known to be
+  // permanently closed stay behind (LB-9).
+  return saves.filter((s) => !s.permanentlyClosed).map((s) => s.id);
 }
 
 /**

@@ -1,5 +1,8 @@
 "use server";
 
+import { EVENTS } from "@/inngest/client";
+import { enqueue } from "@/server/jobs";
+
 import { redirect } from "next/navigation";
 import { refresh } from "next/cache";
 import { after } from "next/server";
@@ -158,6 +161,7 @@ export async function sendToTripAction(tripId: string, savedIdeaIds: string[]): 
   try {
     const { db, userId } = await requireUser();
     const r = await sendSavesToTrip(db, userId, { tripId: uuid.parse(tripId), savedIdeaIds: z.array(uuid).max(200).parse(savedIdeaIds) });
+    for (const ideaId of r.resolveIdeaIds) await enqueue({ name: EVENTS.ideaAdded, data: { ideaId } });
     refresh();
     const n = r.sent + r.merged;
     if (n === 0) return { ok: false, error: r.skipped ? "Those saves are still being sorted. Try again in a moment." : "Nothing to send." };
@@ -196,6 +200,7 @@ export async function startTripFromSavesAction(input: {
       savedIdeaIds: ids,
       boardId: input.boardId ? uuid.parse(input.boardId) : null,
     });
+    for (const ideaId of r.resolveIdeaIds) await enqueue({ name: EVENTS.ideaAdded, data: { ideaId } });
     tripId = r.tripId;
     after(() => track(db, { name: "trip_created", tripId: r.tripId, memberId: r.memberId, props: { via: "library", ideas: r.sent } }));
     if (input.boardId) {
