@@ -6,7 +6,8 @@ import { routes } from "@/lib/routes";
 import { tripContext } from "@/server/context";
 import { after } from "next/server";
 import { track } from "@/server/analytics";
-import { addToPlan, applyPlan, updatePlanItem } from "@/server/plan";
+import { parseClock } from "@wandr/core";
+import { addToPlan, applyPlan, setStopTravelTimes, updatePlanItem } from "@/server/plan";
 import type { ActionResult } from "../actions";
 
 async function full(tripId: string) {
@@ -69,6 +70,28 @@ export async function addToPlanAction(
     await addToPlan(db, claims, { tripId, stopId, ideaId, dayIndex, startMinute });
     refresh();
     return { ok: true, message: "Added to the plan" };
+  } catch (e) {
+    return fail(e, tripId);
+  }
+}
+
+/** FR-O8 / FR-O15: arrival on day 1 and departure on the last day, local to the Stop ("18:30"). */
+export async function setTravelTimesAction(
+  tripId: string,
+  stopId: string,
+  arrive: string | null,
+  leave: string | null,
+): Promise<ActionResult> {
+  try {
+    const { db, claims } = await full(tripId);
+    const arrivalMinute = parseClock(arrive);
+    const departureMinute = parseClock(leave);
+    if ((arrive?.trim() && arrivalMinute === null) || (leave?.trim() && departureMinute === null)) {
+      return { ok: false, error: "Use a time like 18:30." };
+    }
+    await setStopTravelTimes(db, claims, { tripId, stopId, arrivalMinute, departureMinute });
+    refresh();
+    return { ok: true, message: "Saved. Re-arrange to fit the plan around it." };
   } catch (e) {
     return fail(e, tripId);
   }

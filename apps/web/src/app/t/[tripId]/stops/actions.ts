@@ -75,10 +75,7 @@ export async function moveStageAction(
       action: stageAction.parse(action),
       confirmed,
     });
-    if (result.ok) {
-      if (input.name !== undefined) await queueStopGeocode(tripId, { force: true }); // a rename re-geocodes
-      refresh();
-    }
+    if (result.ok) refresh();
     return { ok: true, result };
   } catch (e) {
     return failure(e, tripId);
@@ -148,7 +145,10 @@ export async function updateStopAction(
       nights: input.nights === undefined ? undefined : z.number().int().min(0).max(60).nullable().parse(input.nights),
       choices: input.choices ? z.record(z.string(), z.enum(["shift", "unschedule"])).parse(input.choices) : undefined,
     });
-    if (result.ok) refresh();
+    if (result.ok) {
+      if (input.name !== undefined) await queueStopGeocode(tripId, { force: true }); // a rename re-geocodes
+      refresh();
+    }
     return { ok: true, result };
   } catch (e) {
     return failure(e, tripId);

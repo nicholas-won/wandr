@@ -25,7 +25,18 @@ const CATEGORY_MAP: Record<string, optimizer.ItemCategory> = {
 export const DEFAULT_DAYS = 3;
 
 export interface PlanContext {
-  stop: { id: string; name: string; timezone: string | null; startDate: string | null; nights: number | null };
+  stop: {
+    id: string;
+    name: string;
+    timezone: string | null;
+    startDate: string | null;
+    nights: number | null;
+    lat: number | null;
+    lng: number | null;
+    /** FR-O8 / FR-O15: local minutes, or null when not set. */
+    arrivalMinute: number | null;
+    departureMinute: number | null;
+  };
   input: optimizer.ArrangeInput;
   titles: Map<string, string>;
   current: optimizer.PlanLike & { items: PlanItemRow[] };
@@ -138,6 +149,9 @@ export async function getPlanContext(
         timezone: stop.timezone ?? "UTC",
         days: dayList(stop.startDate, stop.nights, stop.endDate),
         lodging: lodging?.lat != null && lodging.lng != null ? { lat: lodging.lat, lng: lodging.lng } : null,
+        // FR-O8 / FR-O15: arrival on day 1 and departure on the last day shorten those days.
+        arrival: stop.arrivalMinute != null ? { minute: stop.arrivalMinute } : null,
+        departure: stop.departureMinute != null ? { minute: stop.departureMinute } : null,
       },
       items,
       pace: (trip.pace as optimizer.Pace) ?? "balanced",
@@ -147,7 +161,17 @@ export async function getPlanContext(
     // FR-O3: organizers apply; in a duo, the owner (D57).
     const canApply = !!claims.sub && (size === "duo" ? me.role === "owner" : me.role !== "member");
     return {
-      stop: { id: stop.id, name: stop.name, timezone: stop.timezone, startDate: stop.startDate, nights: stop.nights },
+      stop: {
+        id: stop.id,
+        name: stop.name,
+        timezone: stop.timezone,
+        startDate: stop.startDate,
+        nights: stop.nights,
+        lat: stop.lat,
+        lng: stop.lng,
+        arrivalMinute: stop.arrivalMinute,
+        departureMinute: stop.departureMinute,
+      },
       input,
       titles: new Map(ideaRows.map((i) => [i.id, i.title])),
       current: {
@@ -256,9 +280,9 @@ async function recordBasis(db: Db, tripId: string, ctx: PlanContext) {
   );
 }
 
-/** The Stop's location: its own coordinates, else the middle of its located ideas (for weather). */
-export function stopLocation(ctx: PlanContext & { stopLatLng?: { lat: number; lng: number } | null }) {
-  if (ctx.stopLatLng) return ctx.stopLatLng;
+/** The Stop's location: its own (geocoded) coordinates, else the middle of its located ideas (weather). */
+export function stopLocation(ctx: PlanContext) {
+  if (ctx.stop.lat != null && ctx.stop.lng != null) return { lat: ctx.stop.lat, lng: ctx.stop.lng };
   const pts = ctx.input.items.filter((i) => i.lat != null && i.lng != null);
   if (pts.length === 0) return null;
   return {
@@ -320,5 +344,28 @@ export async function updatePlanItem(
         ...(args.dayIndex !== undefined ? { dayIndex: args.dayIndex, startMinute: args.startMinute ?? null } : {}),
       })
       .where(eq(planItems.id, args.planItemId)),
+  );
+}
+
+/**
+ * FR-O8 / FR-O15: "We arrive Day 1 at 18:30", "We leave the last day at 11:00" for a Stop, in its
+ * local time (FR-O16). Same people who apply the plan (FR-O3); RLS (stops_write) also checks.
+ * Changing them marks an applied plan out of date (FR-O17) via the plan basis.
+ */
+export async function setStopTravelTimes(
+  db: Db,
+  claims: Claims,
+  args: { tripId: string; stopId: string; arrivalMinute: number | null; departureMinute: number | null },
+) {
+  for (const m of [args.arrivalMinute, args.departureMinute]) {
+    if (m !== null && (!Number.isInteger(m) || m < 0 || m >= 1440)) throw new Error("invalid_time");
+  }
+  const ctx = await getPlanContext(db, claims, args.tripId, args.stopId);
+  if (!ctx || !ctx.canApply || ctx.stop.id !== args.stopId) throw new Error("not_allowed");
+  await withSession(db, claims, (tx) =>
+    tx
+      .update(stops)
+      .set({ arrivalMinute: args.arrivalMinute, departureMinute: args.departureMinute })
+      .where(and(eq(stops.id, args.stopId), eq(stops.tripId, args.tripId))),
   );
 }
