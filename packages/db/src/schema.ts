@@ -161,6 +161,20 @@ export const stops = pgTable(
     timezone: text("timezone"), // IANA, FR-O16
     lat: doublePrecision("lat"),
     lng: doublePrecision("lng"),
+    /** ISO 3166-1 alpha-2, from geocoding the Stop's name (FR-S6). */
+    countryCode: text("country_code"),
+    /**
+     * The name last geocoded (success or "no match"). A rename makes it differ, so the Stop is
+     * geocoded again; null means never tried (lazy backfill).
+     */
+    geocodedName: text("geocoded_name"),
+    /** "google" | "open_meteo" | "manual". Google coordinates are refreshed after 30 days (terms). */
+    geocodeSource: text("geocode_source"),
+    geocodedAt: timestamp("geocoded_at", { withTimezone: true }),
+    /** FR-O8 / FR-O15: we arrive on day 1 at this local minute (18:30 = 1110). */
+    arrivalMinute: smallint("arrival_minute"),
+    /** FR-O8 / FR-O15: we leave on the last day at this local minute. */
+    departureMinute: smallint("departure_minute"),
     /** Idea id of the decided lodging, if any (FR-O7). */
     lodgingIdeaId: uuid("lodging_idea_id"),
     createdAt: createdAt(),

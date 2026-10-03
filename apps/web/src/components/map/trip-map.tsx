@@ -27,6 +27,8 @@ export interface TripMapProps {
   pins: MapPin[];
   /** Groups the list (and clusters when zoomed out) by Stop; order is kept. */
   stops?: MapStop[];
+  /** The Stop's coordinates: the map opens there when no place is located yet (FR-S9). */
+  center?: { lat: number; lng: number } | null;
   /** Ordered pin ids for a day's plan, drawn as a line (FR-O7). Turns clustering off. */
   route?: string[];
   selectedId?: string | null;
@@ -62,6 +64,7 @@ function useIsDesktop(): boolean {
 export function TripMap({
   pins,
   stops,
+  center = null,
   route,
   selectedId: controlled,
   onSelect,
@@ -83,7 +86,7 @@ export function TripMap({
   const legend = useMemo(() => legendFor(located), [located]);
   const selected = pins.find((p) => p.id === selectedId) ?? null;
   const mini = layout === "mini";
-  const showMap = located.length > 0 && !failed;
+  const showMap = (located.length > 0 || (!!center && !mini)) && !failed;
 
   const select = useCallback(
     (id: string | null, fromMap = false) => {
@@ -127,6 +130,7 @@ export function TripMap({
         <MapCanvas
           pins={located}
           route={routeLine}
+          center={center}
           selectedId={selectedId}
           onSelect={onMapSelect}
           interactive
