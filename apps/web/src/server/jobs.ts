@@ -12,7 +12,8 @@ import { EVENTS, inngest } from "@/inngest/client";
 export type JobEvent =
   | { name: typeof EVENTS.ideaAdded; data: { ideaId: string } }
   | { name: typeof EVENTS.savedIdeaAdded; data: { savedIdeaId: string } }
-  | { name: typeof EVENTS.expenseChanged; data: { tripId: string; expenseId: string } };
+  | { name: typeof EVENTS.expenseChanged; data: { tripId: string; expenseId: string } }
+  | { name: typeof EVENTS.stopsGeocode; data: { tripId: string } };
 
 /** Run one job in-process (the after() fallback, and the Inngest function bodies). */
 export async function runJob(e: JobEvent): Promise<void> {
@@ -26,6 +27,12 @@ export async function runJob(e: JobEvent): Promise<void> {
     case EVENTS.savedIdeaAdded: {
       const { resolveSavedIdeaJob } = await import("./library");
       await resolveSavedIdeaJob(db, e.data.savedIdeaId);
+      return;
+    }
+    case EVENTS.stopsGeocode: {
+      // FR-S6 / FR-O16: Stop coordinates and time zone, then re-file Unsorted ideas.
+      const { geocodeStops } = await import("./geocode");
+      await geocodeStops(db, e.data.tripId);
       return;
     }
     case EVENTS.expenseChanged: {

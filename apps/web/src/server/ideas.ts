@@ -28,6 +28,7 @@ import {
   type ResolvedIdea,
 } from "@wandr/ai";
 import { DEFAULT_TRIP_NAME } from "./trips";
+import { geocodeStops } from "./geocode";
 
 /** First line of a typed idea becomes the title (FR-25 plain-text ideas). */
 function provisionalTitle(raw: string, kind: string): string {
@@ -120,6 +121,8 @@ export async function resolveIdeaJob(db: Db, ideaId: string, deps: { resolver?: 
       { model: createClaudeModel(), places: createPlacesClient(), cache: dbCache(db) },
     );
     await applyResolution(db, ideaId, ctx.idea.tripId, ctx.source.sharedByMemberId, ctx.stops, result);
+    // FR-1a may have just named the trip's Stop: geocode it (no-op when nothing needs it).
+    await geocodeStops(db, ctx.idea.tripId);
   } catch (err) {
     console.error("[resolveIdeaJob]", ideaId, err);
     await asService(db, (tx) => tx.update(ideas).set({ extraction: "failed" }).where(eq(ideas.id, ideaId)));

@@ -9,6 +9,7 @@ import { z } from "zod";
 import { AuthError, requireFull } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { tripContext } from "@/server/context";
+import { queueStopGeocode } from "@/server/geocode";
 import {
   addStop,
   keepCityInStop,
@@ -74,7 +75,10 @@ export async function moveStageAction(
       action: stageAction.parse(action),
       confirmed,
     });
-    if (result.ok) refresh();
+    if (result.ok) {
+      if (input.name !== undefined) await queueStopGeocode(tripId, { force: true }); // a rename re-geocodes
+      refresh();
+    }
     return { ok: true, result };
   } catch (e) {
     return failure(e, tripId);
@@ -104,6 +108,7 @@ export async function addStopAction(
       firstStopName: input.firstStopName ? z.string().max(60).parse(input.firstStopName) : null,
       cityIdeaId: input.cityIdeaId ? z.uuid().parse(input.cityIdeaId) : null,
     });
+    await queueStopGeocode(tripId, { force: true }); // FR-S6 / FR-O16
     refresh();
     return { ok: true, message: r.moved ? `Added ${input.name.trim()} and moved ${r.moved} ${r.moved === 1 ? "idea" : "ideas"}.` : `Added ${input.name.trim()}.` };
   } catch (e) {
