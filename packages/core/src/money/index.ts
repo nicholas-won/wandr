@@ -19,3 +19,4 @@ export * from "./corrections";
 export * from "./payers";
 export * from "./similarity";
 export * from "./activity";
+export * from "./own-ledger";

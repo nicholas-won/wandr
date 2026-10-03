@@ -64,6 +64,13 @@
       "when": 1791051854800,
       "tag": "0009_money_decisions",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791053365945,
+      "tag": "0012_account_recheck",
+      "breakpoints": true
     }
   ]
 }

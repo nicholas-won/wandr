@@ -115,6 +115,17 @@ export const users = pgTable("users", {
   smsOptedOut: boolean("sms_opted_out").notNull().default(false), // FR-85
   plan: userPlan("plan").notNull().default("free"), // FR-L20/L21; set by the service only
   lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
+  /**
+   * FR-16 / J-4: a long-inactive number signed in (or WRONG was reported for it). Until an email
+   * code or an organizer confirms it's them, money, approvals and settings stay locked (RLS:
+   * app.recheck_pending). Cleared by the service only.
+   */
+  recheckPendingAt: timestamp("recheck_pending_at", { withTimezone: true }),
+  /**
+   * FR-3 / NFR-7: account deleted. The row stays, anonymized (no phone, email or name), so other
+   * people's balances keep their counterpart; every session for it is refused.
+   */
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: createdAt(),
 });
 

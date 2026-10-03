@@ -14,3 +14,4 @@ export * as money from "./money";
 export * as optimizer from "./optimizer";
 export * from "./metrics";
 export * from "./weather";
+export * from "./account-deletion";
