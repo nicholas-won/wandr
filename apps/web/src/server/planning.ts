@@ -33,6 +33,7 @@ import {
   STAGE_ORDER,
   stageChips,
   transitionStage,
+  tripClock,
   tripSize,
   type IdeaStatus,
   type MemberRole,
@@ -175,6 +176,8 @@ export interface PlanningView {
   /** FR-S5: proposed cities (Where stage). */
   cityIdeas: { id: string; title: string; status: string; lat: number | null; lng: number | null }[];
   dateWarnings: { stopId: string; kind: "overlap" | "gap"; days: number }[];
+  /** FR-O16: the current/next Stop's clock, shown next to deadlines when it differs from the viewer's. */
+  tripClock: { name: string; timeZone: string } | null;
 }
 
 export async function getPlanningView(
@@ -289,6 +292,7 @@ export async function getPlanningView(
         .filter((i) => i.category === "city" && i.status !== "dropped")
         .map((i) => ({ id: i.id, title: i.title, status: i.status, lat: i.lat, lng: i.lng })),
       dateWarnings: stopDateWarnings(stopRows),
+      tripClock: tripClock(stopRows, showStops ? currentOrNextStopId(stopRows, today(now)) : null),
     };
   });
 }
