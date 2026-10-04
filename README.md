@@ -3,7 +3,8 @@
 A group trip "inbox": drop TikToks, links or screenshots into a trip, AI resolves each to a real
 place, friends vote by text, and receipts get split. The spec is [`REQUIREMENTS.md`](REQUIREMENTS.md);
 how we work is in [`CLAUDE.md`](CLAUDE.md); unresolved spec questions are in
-[`docs/open-questions.md`](docs/open-questions.md).
+[`docs/open-questions.md`](docs/open-questions.md); unscheduled product ideas are in
+[`docs/backlog.md`](docs/backlog.md).
 
 ## Run it locally (no accounts needed)
 
