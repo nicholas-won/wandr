@@ -54,6 +54,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         iosShareExtensionName: `${APP_NAME} Share`,
       },
     ],
+    // iOS builds from a path with spaces (expo-constants script phase quoting).
+    "./plugins/with-path-spaces-fix",
   ],
   experiments: {
     typedRoutes: true,
