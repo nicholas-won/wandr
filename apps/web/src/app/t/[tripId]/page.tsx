@@ -5,6 +5,7 @@ import { AddIdea } from "@/components/trip/add-idea";
 import { AddExpenseLink } from "@/components/money/add-expense-link";
 import { AutoRefresh } from "@/components/trip/auto-refresh";
 import { IdeaCard } from "@/components/trip/idea-card";
+import { IdeaBoard } from "@/components/trip/idea-board";
 import { WhatsNewCard } from "@/components/trip/whats-new";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +34,11 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
   const topPicks = view.ideas.filter((c) => c.rank !== null && (c.myVote === "must" || c.myVote === "down")).slice(0, 5);
   // FR-S9 / FR-121: Stop filter + "not voted"; FR-49/50 card footers (stages/Stops slice).
   const plan = await loadPlanning(tripId);
-  const filter = parseFeedFilter(await searchParams, plan);
+  const sp = await searchParams;
+  const filter = parseFeedFilter(sp, plan);
+  // Founder request: a kanban-style board to switch, view, edit and move ideas.
+  const boardView = sp.view === "board";
+  const boardGroup = sp.group === "status" ? ("status" as const) : ("city" as const);
   const cards = filterFeed(view.ideas, filter);
   const notMine = size === "solo" ? new Set<string>() : await myNotMyPicks(db, claims, tripId);
   const isOrganizer = !!plan?.me.isOrganizer;
@@ -46,8 +51,8 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
   const sizeNotices = await getSizeNotices(db, claims, tripId);
 
   return (
-    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8">
-      <main className="space-y-4">
+    <div className={boardView ? "" : "lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8"}>
+      <main className="min-w-0 space-y-4">
         <AutoRefresh active={processing} />
         {canAdd ? <AddIdea tripId={tripId} autoFocus={view.ideas.length === 0} /> : null}
         {size !== "solo" ? <WhatsNewCard tripId={tripId} myMemberId={view.me.memberId} /> : null}
@@ -65,7 +70,10 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
         ) : null}
 
         <FeedPrompts tripId={tripId} plan={plan} />
-        <FeedFilters tripId={tripId} cards={view.ideas} plan={plan} filter={filter} showUnvoted={size !== "solo"} />
+        {view.ideas.length > 0 ? <ViewToggle tripId={tripId} board={boardView} group={boardGroup} /> : null}
+        {boardView ? null : (
+          <FeedFilters tripId={tripId} cards={view.ideas} plan={plan} filter={filter} showUnvoted={size !== "solo"} />
+        )}
 
         {size === "group" && unvoted > 0 ? (
           <p className="text-sm font-semibold text-primary">
@@ -75,6 +83,16 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
 
         {view.ideas.length === 0 ? (
           <EmptyIdeas />
+        ) : boardView ? (
+          <IdeaBoard
+            tripId={tripId}
+            cards={view.ideas}
+            group={boardGroup}
+            stops={view.stops}
+            size={size}
+            canEdit={canAdd && !session.user?.provisional}
+            canMoveStatus={isOrganizer && !!session.user && !session.user.provisional}
+          />
         ) : cards.length === 0 ? (
           <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">Nothing here.</p>
         ) : (
@@ -119,8 +137,8 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
         )}
       </main>
 
-      {/* Desktop planning rail */}
-      <aside className="hidden lg:block">
+      {/* Desktop planning rail (the board uses the full width) */}
+      <aside className={boardView ? "hidden" : "hidden lg:block"}>
         <div className="sticky top-8 space-y-4">
           <MiniMapCard tripId={tripId} />
           <TopPicks picks={topPicks} size={size} />
@@ -178,6 +196,36 @@ function EmptyIdeas() {
       <p className="mt-3 hidden text-sm lg:block">
         Tip: on your phone, tap Share on a TikTok, copy the link and paste it here.
       </p>
+    </div>
+  );
+}
+
+/** List / Board toggle and, for the board, "Group by City / Status". Plain links (bookmarkable). */
+function ViewToggle({ tripId, board, group }: { tripId: string; board: boolean; group: "city" | "status" }) {
+  const base = routes.trip(tripId);
+  const pill = (active: boolean) =>
+    `rounded-full px-3 py-1.5 text-xs font-semibold ${active ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted"}`;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <nav aria-label="View" className="flex gap-1 rounded-full border bg-card p-1">
+        <Link href={base} aria-current={!board ? "page" : undefined} className={pill(!board)}>
+          List
+        </Link>
+        <Link href={`${base}?view=board&group=${group}`} aria-current={board ? "page" : undefined} className={pill(board)}>
+          Board
+        </Link>
+      </nav>
+      {board ? (
+        <nav aria-label="Group by" className="flex items-center gap-1 text-xs">
+          <span className="text-muted-foreground">Group by</span>
+          <Link href={`${base}?view=board&group=city`} aria-current={group === "city" ? "page" : undefined} className={pill(group === "city")}>
+            City
+          </Link>
+          <Link href={`${base}?view=board&group=status`} aria-current={group === "status" ? "page" : undefined} className={pill(group === "status")}>
+            Status
+          </Link>
+        </nav>
+      ) : null}
     </div>
   );
 }

@@ -25,6 +25,6 @@ export default defineConfig({
     timeout: 300_000,
     reuseExistingServer: false,
     // GEOCODER=off: no network in e2e; Stops simply stay without coordinates (silent).
-    env: { PGLITE_DIR: ".data/e2e", NEXT_DIST_DIR: ".next-e2e", GEOCODER: "off" },
+    env: { PGLITE_DIR: ".data/e2e", NEXT_DIST_DIR: ".next-e2e", E2E_RELAX_OTP_IP_LIMIT: "1", GEOCODER: "off" },
   },
 });

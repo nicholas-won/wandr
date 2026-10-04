@@ -80,8 +80,9 @@ async function countRequests(tx: Tx, destination: string, ip: string | null, tri
   return {
     destination10m: dest?.m10 ?? 0,
     destinationDay: dest?.day ?? 0,
-    ip10m: byIp?.m10 ?? 0,
-    ipDay: byIp?.day ?? 0,
+    // E2E runs sign up many test numbers from one address; never relaxed in production.
+    ip10m: relaxIpLimit() ? 0 : (byIp?.m10 ?? 0),
+    ipDay: relaxIpLimit() ? 0 : (byIp?.day ?? 0),
     tripDay: byTrip?.day ?? 0,
   };
 }
@@ -117,6 +118,10 @@ async function gateRequest(req: {
     await tx.insert(otpRequests).values({ destination: req.destination, ip: req.ip, tripId: req.tripId ?? null });
     return null;
   });
+}
+
+function relaxIpLimit(): boolean {
+  return process.env.NODE_ENV !== "production" && process.env.E2E_RELAX_OTP_IP_LIMIT === "1";
 }
 
 export type CodeChallengeResult =
