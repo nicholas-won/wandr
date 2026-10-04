@@ -123,3 +123,16 @@ Decided by the founder in chat; propose adding to §13 as D64:
 - ST5 **DECIDED:** organizers can remove a city with polls, plans or expenses: ideas go to Unsorted, open polls close, all its polls are unlinked, plan items are removed, expenses stay (unlinked). A preview shows first.
 - TX7 **SUPERSEDED by D65:** there are no texted-in ideas any more, so moving one to the library is moot (not built).
 - NMP **DECIDED:** keep.
+
+## Account settings: deletion, recheck, money-only view (slice 3)
+
+| # | Question | Provisional default |
+|---|---|---|
+| AC1 | FR-3: owner deletes their account and the only other people are link-only guests (never verified) | Hand the trip to the longest-tenured guest rather than delete it (verified people always come first). The trip is deleted only when nobody else is on it (managed members the owner added don't count) |
+| AC2 | J-11: notify the new owner after an automatic succession | In-app only (audit entry); no text (D65) |
+| AC3 | FR-16: one organizer's "Yes, it's them" clears the recheck for the whole account, not just their trip | Account-wide (the organizer knows the person; J-4 asks for "organizer re-approval") |
+| AC4 | FR-16: "I'm not Sam" on the recheck screen | Signs out only. The previous owner's data stays locked behind the recheck; a real "new owner of this number" flow (detach the number, start fresh) is not built |
+| AC5 | FR-16: signing in with a code to the account's email while a recheck is pending | Clears it (the email is the second factor) |
+| AC6 | M-1: who a removed member can record a settle-up with | Only people on their own expenses or payments (no member list), in a currency already on their ledger |
+| AC7 | NFR-7: a deleted person's open balance | Kept on the trip under "Former member" (not resolved automatically); the preview warns and suggests settling first |
+| AC8 | M-1: removal adjustments anchored on an expense hidden from the removed person (FR-91) | Shown as "Balance settled when you left" with no expense detail, so their balance adds up; other corrections on hidden expenses stay hidden |

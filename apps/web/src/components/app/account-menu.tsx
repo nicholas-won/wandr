@@ -46,6 +46,9 @@ export function AccountMenu({ user }: { user: User }) {
       </button>
       {open ? (
         <div role="menu" className="absolute right-0 z-30 mt-2 w-48 overflow-hidden rounded-xl border bg-popover py-1 text-sm shadow-lg">
+          <Link role="menuitem" href={routes.account} className="block px-4 py-2 hover:bg-muted">
+            Account
+          </Link>
           <Link role="menuitem" href={routes.site} className="block px-4 py-2 hover:bg-muted">
             About the app
           </Link>

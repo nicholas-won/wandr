@@ -16,6 +16,7 @@ import { useToast } from "@/components/ui/toast";
 import {
   addManagedAction,
   balanceAction,
+  approveRecheckAction,
   decideRequestAction,
   dismissNoticeAction,
   leaveTripAction,
@@ -114,6 +115,16 @@ export function JoinRequestActions({ tripId, memberId, name }: { tripId: string;
         <Check aria-hidden /> Approve
       </Button>
     </div>
+  );
+}
+
+/** FR-16 / J-4: an organizer confirms a long-inactive number is still the same person (no texts, D65). */
+export function RecheckApprove({ tripId, memberId, name }: { tripId: string; memberId: string; name: string }) {
+  const { pending, run } = useRun();
+  return (
+    <Button size="sm" aria-label={`Yes, it's ${name}`} loading={pending} onClick={() => run(() => approveRecheckAction(tripId, memberId))}>
+      <Check aria-hidden /> Yes, it&apos;s them
+    </Button>
   );
 }
 

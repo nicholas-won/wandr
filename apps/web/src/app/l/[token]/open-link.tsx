@@ -12,6 +12,7 @@ import * as React from "react";
 import { useActionState } from "react";
 import Link from "next/link";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { routes } from "@/lib/routes";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { LinkPreview, LinkStatus, LinkStep } from "@/lib/auth/personal-link";
@@ -21,7 +22,10 @@ import type { OpenLinkState } from "./state";
 const COPY: Record<Exclude<NonNullable<OpenLinkState["error"]>, "bad_name">, { title: string; body: string }> = {
   invalid: { title: "This link doesn't work", body: "Check you opened the whole link, or sign in to see your trips." },
   revoked: { title: "This link was turned off", body: "Sign in with your number to see your trips." },
-  removed: { title: "You're no longer in this trip", body: "If that's a mistake, ask the organizer to add you back." },
+  removed: {
+    title: "You're no longer in this trip",
+    body: "You can still see what you owe or are owed, and settle up. If being removed is a mistake, ask the organizer to add you back.",
+  },
   other_device: {
     title: "Sign in to continue",
     body: "This link was already opened on another device. Enter a code once to use it here.",
@@ -55,11 +59,16 @@ export function OpenLink({ token, status }: { token: string; status: LinkStatus 
           <h1 className="font-display text-3xl font-extrabold tracking-tight">{c.title}</h1>
           <p className="mt-2 text-muted-foreground">{c.body}</p>
         </div>
-        {error !== "removed" ? (
+        {error === "removed" ? (
+          // M-1/M-2: money needs a code (FR-5); the money-only view is listed on their trips page.
+          <Link href={routes.signin(`${routes.home}#former`)} className={buttonVariants({ size: "lg", block: true })}>
+            Sign in to settle up
+          </Link>
+        ) : (
           <Link href="/signin" className={buttonVariants({ size: "lg", block: true })}>
             Sign in with a code
           </Link>
-        ) : null}
+        )}
       </div>
     );
   }

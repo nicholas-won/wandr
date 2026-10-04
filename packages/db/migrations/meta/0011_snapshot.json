@@ -1,6 +1,6 @@
 {
-  "id": "428c0f9a-7dfa-4097-8141-b798cc10a4db",
-  "prevId": "4488734b-4051-4ae4-bec2-3e03b5eb1ce7",
+  "id": "6b01a224-cbcb-45a9-924f-03929f5a7ba6",
+  "prevId": "120adedc-5267-4ba8-9653-4e09d62f0c5c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5413,6 +5413,18 @@
         },
         "last_sign_in_at": {
           "name": "last_sign_in_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recheck_pending_at": {
+          "name": "recheck_pending_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_at": {
+          "name": "deleted_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false

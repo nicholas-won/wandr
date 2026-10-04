@@ -16,3 +16,4 @@ export * as optimizer from "./optimizer";
 export * from "./metrics";
 export * from "./weather";
 export * from "./itinerary";
+export * from "./account-deletion";

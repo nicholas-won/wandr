@@ -47,9 +47,11 @@ import {
   openBalancesFor,
   pendingSizeNotices,
   pickSuccessor,
+  planAccountDeletion,
   planBalanceResolution,
   shouldPauseAfterRequest,
   tripSize,
+  type AccountTrip,
   type ActivityEvent,
   type BalanceResolution,
   type MemberRole,
@@ -560,8 +562,9 @@ export async function decideJoinRequest(
 }
 
 /**
- * After a verified code: link `members.user_id` on joined rows (active / not attending) whose
- * invite contact matches the verified phone or email, so a guest who later signs in keeps their
+ * After a verified code: link `members.user_id` on joined rows (active / not attending, or removed
+ * so they reach the money-only view, FR-9/M-1) whose invite contact matches the verified phone or
+ * email, so a guest who later signs in keeps their
  * membership and their personal-link session becomes a full one. Skips trips where the user
  * already has a member row. Invited (not yet joined) rows are left for the J-8 name check.
  */
@@ -576,7 +579,7 @@ export async function attachVerifiedIdentity(tx: Tx, userId: string): Promise<nu
     .select({ id: members.id, tripId: members.tripId })
     .from(members)
     .innerJoin(memberContacts, eq(memberContacts.memberId, members.id))
-    .where(and(isNull(members.userId), inArray(members.status, ["active", "not_attending"]), byContact));
+    .where(and(isNull(members.userId), inArray(members.status, ["active", "not_attending", "removed"]), byContact));
   if (candidates.length === 0) return 0;
   const mine = await tx
     .select({ tripId: members.tripId })
@@ -712,12 +715,72 @@ export async function defaultSuccessor(db: Db, userId: string, tripId: string): 
 }
 
 /**
+ * Every trip the user has a member row in (live trips only), shaped for the account-deletion
+ * plan (FR-3, J-11). Service read: the caller must already be authenticated as `userId`.
+ */
+export async function loadAccountTrips(tx: Tx, userId: string): Promise<AccountTrip[]> {
+  const mine = await tx
+    .select({ id: members.id, tripId: members.tripId, role: members.role, status: members.status, tripName: trips.name })
+    .from(members)
+    .innerJoin(trips, eq(trips.id, members.tripId))
+    .where(and(eq(members.userId, userId), isNull(trips.deletedAt)))
+    .orderBy(asc(trips.createdAt));
+  const out: AccountTrip[] = [];
+  for (const m of mine) {
+    const rows = await tx
+      .select({
+        memberId: members.id,
+        role: members.role,
+        status: members.status,
+        joinedAt: members.joinedAt,
+        createdAt: members.createdAt,
+        managedByMemberId: members.managedByMemberId,
+        userId: members.userId,
+        displayName: members.displayName,
+      })
+      .from(members)
+      .where(eq(members.tripId, m.tripId));
+    out.push({
+      tripId: m.tripId,
+      tripName: m.tripName,
+      myMemberId: m.id,
+      myRole: m.role,
+      myStatus: m.status,
+      members: rows.map((r) => ({
+        memberId: r.memberId,
+        role: r.role,
+        status: r.status,
+        joinedAt: r.joinedAt ?? r.createdAt,
+        managedByMemberId: r.managedByMemberId,
+        verified: !!r.userId,
+        displayName: r.displayName,
+      })),
+    });
+  }
+  return out;
+}
+
+/** FR-2/FR-3: move the owner role (demote first: one owner per trip). */
+export async function handOverOwnership(tx: Tx, args: { tripId: string; fromMemberId: string; toMemberId: string; picked: boolean }) {
+  await tx.update(members).set({ role: "member" }).where(eq(members.id, args.fromMemberId));
+  await tx.update(members).set({ role: "owner" }).where(eq(members.id, args.toMemberId));
+  await tx.insert(auditLog).values({
+    tripId: args.tripId,
+    actorMemberId: args.fromMemberId,
+    action: "member.owner_succession",
+    entity: "member",
+    entityId: args.toMemberId,
+    data: { from: args.fromMemberId, picked: args.picked },
+  });
+}
+
+/**
  * FR-3 / J-11: when a user deletes their account, every trip they own gets a new owner: the
  * successor they picked (`picks[tripId]`), else the longest-standing organizer, else the
- * longest-tenured active verified member. Their own membership ends ("former member"). Trips
- * with nobody eligible (e.g. solo) are returned with `successorMemberId: null` for the
- * account-deletion flow to handle. Service-level: the caller must already be authenticated as
- * `userId` and have confirmed deletion.
+ * longest-tenured active member (verified people first; @wandr/core planAccountDeletion).
+ * Their own membership in those trips ends ("former member"). Trips with nobody else are
+ * returned with `successorMemberId: null` for the account-deletion flow to handle.
+ * Service-level: the caller must already be authenticated as `userId` and have confirmed.
  */
 export async function ownerSuccessionOnAccountDeletion(
   db: Db,
@@ -726,31 +789,16 @@ export async function ownerSuccessionOnAccountDeletion(
   now = new Date(),
 ): Promise<{ tripId: string; successorMemberId: string | null }[]> {
   return asService(db, async (tx) => {
-    const owned = await tx
-      .select({ id: members.id, tripId: members.tripId })
-      .from(members)
-      .where(and(eq(members.userId, userId), eq(members.role, "owner"), eq(members.status, "active")));
+    const owned = (await loadAccountTrips(tx, userId)).filter((t) => t.myRole === "owner" && t.myStatus === "active");
     const out: { tripId: string; successorMemberId: string | null }[] = [];
-    for (const o of owned) {
-      const pool = (await successionPool(tx, o.tripId)).filter((m) => m.verified);
-      const picked = picks[o.tripId];
-      const valid = picked && pool.some((m) => m.memberId === picked && m.status === "active" && !m.managedByMemberId && m.memberId !== o.id);
-      const successor = valid ? picked : pickSuccessor(pool, o.id);
-      if (!successor) {
-        out.push({ tripId: o.tripId, successorMemberId: null });
+    for (const plan of planAccountDeletion(owned, picks)) {
+      if (plan.kind !== "hand_over") {
+        out.push({ tripId: plan.tripId, successorMemberId: null });
         continue;
       }
-      await tx.update(members).set({ role: "member", status: "removed", removedAt: now }).where(eq(members.id, o.id));
-      await tx.update(members).set({ role: "owner" }).where(eq(members.id, successor));
-      await tx.insert(auditLog).values({
-        tripId: o.tripId,
-        actorMemberId: o.id,
-        action: "member.owner_succession",
-        entity: "member",
-        entityId: successor,
-        data: { from: o.id, picked: !!valid },
-      });
-      out.push({ tripId: o.tripId, successorMemberId: successor });
+      await handOverOwnership(tx, { tripId: plan.tripId, fromMemberId: plan.myMemberId, toMemberId: plan.successorMemberId, picked: plan.picked });
+      await tx.update(members).set({ status: "removed", removedAt: now }).where(eq(members.id, plan.myMemberId));
+      out.push({ tripId: plan.tripId, successorMemberId: plan.successorMemberId });
     }
     return out;
   });
@@ -973,17 +1021,23 @@ export async function deleteTrip(
       .where(eq(trips.id, args.tripId));
     if (!trip || trip.deletedAt) throw new MembershipError("not_found");
     if (!deleteConfirmationMatches(args.confirmation, trip.name)) throw new MembershipError("confirmation_mismatch");
-    await tx.update(trips).set({ deletedAt: now, groupLinkHash: null }).where(eq(trips.id, args.tripId));
-    const ids = (await tx.select({ id: members.id }).from(members).where(eq(members.tripId, args.tripId))).map((m) => m.id);
-    await revokeLinksForMembers(tx, ids);
-    if (ids.length) await tx.delete(smsOpenQuestions).where(inArray(smsOpenQuestions.memberId, ids));
-    await tx.insert(auditLog).values({
-      tripId: args.tripId,
-      actorMemberId: me.id,
-      action: "trip.deleted",
-      entity: "trip",
-      entityId: args.tripId,
-    });
+    await softDeleteTripTx(tx, { tripId: args.tripId, actorId: me.id, now });
+  });
+}
+
+/** JR3 soft delete, after the caller's checks. Also used when an account is deleted (FR-3). */
+export async function softDeleteTripTx(tx: Tx, args: { tripId: string; actorId: string; now: Date; reason?: string }) {
+  await tx.update(trips).set({ deletedAt: args.now, groupLinkHash: null }).where(eq(trips.id, args.tripId));
+  const ids = (await tx.select({ id: members.id }).from(members).where(eq(members.tripId, args.tripId))).map((m) => m.id);
+  await revokeLinksForMembers(tx, ids);
+  if (ids.length) await tx.delete(smsOpenQuestions).where(inArray(smsOpenQuestions.memberId, ids));
+  await tx.insert(auditLog).values({
+    tripId: args.tripId,
+    actorMemberId: args.actorId,
+    action: "trip.deleted",
+    entity: "trip",
+    entityId: args.tripId,
+    ...(args.reason ? { data: { reason: args.reason } } : {}),
   });
 }
 
