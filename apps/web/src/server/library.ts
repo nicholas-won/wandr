@@ -14,6 +14,7 @@
  *   FR-L22  only new AI extractions count as imports (logged, not capped: FR-L24)
  *   FR-L25  a library never shows up in trip views or counts
  */
+import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
   aiImports,
@@ -37,12 +38,27 @@ import {
   type Db,
   type Tx,
 } from "@wandr/db";
-import { classifyInput, createClaudeModel, createPlacesClient, resolveIdea, type ResolvedIdea } from "@wandr/ai";
+import {
+  classifyInput,
+  createClaudeModel,
+  createPlacesClient,
+  mapsUrlForPlaceId,
+  resolveIdea,
+  type PlacesClient,
+  type ResolvedIdea,
+} from "@wandr/ai";
 import { fileIdea, type VoteValue } from "@wandr/core";
 import { effectiveSort, foldName, isPending, type LibraryCategory, type SaveLike } from "@wandr/core/library";
 import { countryName } from "@/components/library/format";
-import { cardBlurb, cardPhoto, locationLabel, placePhotosEnabled, readCache, type CardVisualFields } from "@/lib/idea-visual";
-import { dbCache } from "./ideas";
+import { cardBlurb, cardPhoto, locationLabel, placePhotosEnabled, readCache, sourceThumb, type CardVisualFields } from "@/lib/idea-visual";
+import {
+  checkScreenshot,
+  loadScreenshotForModel,
+  screenshotStorage,
+  type ScreenshotStorage,
+} from "@/lib/storage/screenshots";
+import { dbCache, IdeaInputError, importKind } from "./ideas";
+import { fetchPickedPlace, pickedFields, searchPlaces, type PlaceSearchOutcome } from "./place-search";
 import { createTrip } from "./trips";
 
 type Category = LibraryCategory;
@@ -93,11 +109,36 @@ export async function saveToLibrary(db: Db, userId: string, args: { raw: string 
   });
 }
 
+/**
+ * FR-L1: save a screenshot to the caller's own library. Stored privately under the person's id;
+ * resolveSavedIdeaJob reads the on-screen text (FR-30 step 2) in the background.
+ */
+export async function saveScreenshot(
+  db: Db,
+  userId: string,
+  args: { bytes: Uint8Array; note?: string },
+  storage: ScreenshotStorage = screenshotStorage(),
+): Promise<{ savedIdeaId: string }> {
+  const check = checkScreenshot(args.bytes);
+  if (!check.ok) throw new IdeaInputError("invalid", check.error);
+  const path = `${userId}/${randomUUID()}.${check.ext}`;
+  await storage.put(path, args.bytes, check.contentType);
+  const note = args.note?.trim().slice(0, 1000) || null;
+  return withSession(db, own(userId), async (tx) => {
+    const [row] = await tx
+      .insert(savedIdeas)
+      .values({ userId, title: note ? note.split("\n")[0]!.slice(0, 120) : "Screenshot", extraction: "processing" })
+      .returning({ id: savedIdeas.id });
+    await tx.insert(savedIdeaSources).values({ savedIdeaId: row!.id, kind: "screenshot", storagePath: path, caption: note });
+    return { savedIdeaId: row!.id };
+  });
+}
+
 /** Background job: resolve one save with no trip context and file it. Never throws. */
 export async function resolveSavedIdeaJob(
   db: Db,
   savedIdeaId: string,
-  deps: { resolver?: typeof resolveIdea } = {},
+  deps: { resolver?: typeof resolveIdea; storage?: ScreenshotStorage } = {},
 ): Promise<void> {
   try {
     const ctx = await asService(db, async (tx) => {
@@ -112,13 +153,27 @@ export async function resolveSavedIdeaJob(
       return { save, source };
     });
     if (!ctx?.source) return;
+    const isShot = ctx.source.kind === "screenshot";
+    // FR-L1 / FR-30 step 2: the image goes to the model as untrusted data (C-21).
+    const screenshot =
+      isShot && ctx.source.storagePath
+        ? await loadScreenshotForModel(deps.storage ?? screenshotStorage(), ctx.source.storagePath)
+        : null;
+    if (isShot && !screenshot && !ctx.source.caption) {
+      await asService(db, (tx) =>
+        tx.update(savedIdeas).set({ extraction: "needs_review" }).where(eq(savedIdeas.id, savedIdeaId)),
+      );
+      return;
+    }
     const raw = ctx.source.url
       ? [ctx.source.url, ctx.source.caption].filter(Boolean).join("\n")
-      : (ctx.source.caption ?? ctx.save.title);
+      : isShot
+        ? (ctx.source.caption ?? "")
+        : (ctx.source.caption ?? ctx.save.title);
     const resolver = deps.resolver ?? resolveIdea;
     const actor = ctx.save.userId ?? ctx.save.createdByBoardMemberId ?? "anon";
     const result = await resolver(
-      { raw, rateLimitKeys: [`library:${actor}`] },
+      { raw, screenshot: screenshot ?? undefined, rateLimitKeys: [`library:${actor}`] },
       null, // FR-L1: no trip, no Stops
       { model: createClaudeModel(), places: createPlacesClient(), cache: dbCache(db) },
     );
@@ -209,11 +264,18 @@ export async function applySavedResolution(db: Db, savedIdeaId: string, r: Resol
       .update(savedIdeaSources)
       .set({
         normalizedUrl: r.source.normalizedUrl,
-        caption: r.source.caption,
+        // Keep a typed note (e.g. on a screenshot) when the source had no caption of its own.
+        ...(r.source.caption != null ? { caption: r.source.caption } : {}),
         thumbnailUrl: r.source.thumbnailUrl,
         creatorHandle: r.source.creatorHandle,
       })
       .where(eq(savedIdeaSources.savedIdeaId, savedIdeaId));
+    const isShot = (
+      await tx
+        .select({ kind: savedIdeaSources.kind })
+        .from(savedIdeaSources)
+        .where(eq(savedIdeaSources.savedIdeaId, savedIdeaId))
+    ).some((x) => x.kind === "screenshot");
 
     const listicle = r.kind === "listicle" && r.places.length > 1;
     const target = listicle ? null : await findDuplicate(tx, save, p?.placeId ?? null, r.source.normalizedUrl);
@@ -250,8 +312,7 @@ export async function applySavedResolution(db: Db, savedIdeaId: string, r: Resol
       await tx.insert(aiImports).values({
         userId,
         savedIdeaId: target ?? savedIdeaId,
-        kind:
-          r.source.kind === "text" ? "text" : r.fromCache ? "cache_hit" : r.state === "failed" ? "failed" : "extraction",
+        kind: importKind(r, isShot),
         normalizedUrl: r.source.normalizedUrl,
       });
     }
@@ -356,7 +417,6 @@ type SourceRow = typeof savedIdeaSources.$inferSelect;
 
 function toView(s: SaveRow, sources: SourceRow[], note?: { note: string | null; somedayPriority: VoteValue | null }): SaveView {
   const first = [...sources].sort((a, b) => +a.createdAt - +b.createdAt)[0];
-  const withThumb = sources.find((x) => x.thumbnailUrl);
   const e = effectiveSort(s);
   const caption = sources.find((x) => x.kind !== "text" && x.caption)?.caption ?? null;
   const blurb = cardBlurb(s.summary, caption);
@@ -376,7 +436,7 @@ function toView(s: SaveRow, sources: SourceRow[], note?: { note: string | null; 
     lat: s.lat,
     lng: s.lng,
     needsReview: s.extraction === "needs_review",
-    thumbnailUrl: withThumb?.thumbnailUrl ?? null,
+    thumbnailUrl: sourceThumb("save", sources),
     sourceUrl: first?.url ?? null,
     sourceKind: first?.kind ?? null,
     creatorHandle: first?.creatorHandle ?? null,
@@ -515,6 +575,112 @@ export async function updateSaveSort(
       .where(and(eq(savedIdeas.id, args.savedIdeaId), eq(savedIdeas.userId, userId)))
       .returning({ id: savedIdeas.id }),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Place search: fix a save's place (FR-23 via FR-L3) or save a place by hand (FR-L20, no AI)
+// ---------------------------------------------------------------------------
+
+/** Library searches have no Stop: bias to the save's own pin when it has one. */
+export async function searchPlacesForLibrary(
+  db: Db,
+  userId: string,
+  args: { query: string; savedIdeaId?: string | null },
+  deps: { places?: PlacesClient | null } = {},
+): Promise<PlaceSearchOutcome> {
+  let near: { lat: number; lng: number } | null = null;
+  if (args.savedIdeaId) {
+    const [row] = await withSession(db, own(userId), (tx) =>
+      tx
+        .select({ lat: savedIdeas.lat, lng: savedIdeas.lng })
+        .from(savedIdeas)
+        .where(and(eq(savedIdeas.id, args.savedIdeaId!), eq(savedIdeas.userId, userId))),
+    );
+    if (row?.lat != null && row.lng != null) near = { lat: row.lat, lng: row.lng };
+  }
+  return searchPlaces({ actor: userId, query: args.query, near }, deps);
+}
+
+/**
+ * The owner picks the right place for a save. The pick replaces the place, pin and auto-sort
+ * (country, city, category) and clears the old overrides, which described the wrong place.
+ */
+export async function pickPlaceForSave(
+  db: Db,
+  userId: string,
+  args: { savedIdeaId: string; placeId: string },
+  deps: { places?: PlacesClient | null } = {},
+): Promise<void> {
+  const c = await fetchPickedPlace(args.placeId, deps.places);
+  const f = pickedFields(c);
+  const rows = await withSession(db, own(userId), (tx) =>
+    tx
+      .update(savedIdeas)
+      .set({
+        title: f.title,
+        category: f.category,
+        placeId: f.placeId,
+        placeCache: f.placeCache,
+        placeCachedAt: f.placeCachedAt,
+        lat: f.lat,
+        lng: f.lng,
+        priceLevel: f.priceLevel,
+        permanentlyClosed: f.permanentlyClosed, // FR-L18
+        country: f.country,
+        regionOrCity: f.city,
+        countryOverride: null,
+        regionOrCityOverride: null,
+        categoryOverride: null,
+        extraction: f.extraction,
+        confidence: f.confidence,
+        candidates: f.candidates,
+      })
+      .where(and(eq(savedIdeas.id, args.savedIdeaId), eq(savedIdeas.userId, userId)))
+      .returning({ id: savedIdeas.id }),
+  );
+  if (rows.length === 0) throw new IdeaInputError("not_found");
+}
+
+/** FR-L20: save a place straight from the search, free and unlimited (never an import, FR-L22). */
+export async function saveFromPlace(
+  db: Db,
+  userId: string,
+  args: { placeId: string },
+  deps: { places?: PlacesClient | null } = {},
+): Promise<{ savedIdeaId: string; merged: boolean }> {
+  const c = await fetchPickedPlace(args.placeId, deps.places);
+  const f = pickedFields(c);
+  const url = mapsUrlForPlaceId(c.placeId);
+  return withSession(db, own(userId), async (tx) => {
+    // FR-L5: the same place already saved keeps one save.
+    const [dup] = await tx
+      .select({ id: savedIdeas.id })
+      .from(savedIdeas)
+      .where(and(eq(savedIdeas.userId, userId), eq(savedIdeas.placeId, c.placeId)))
+      .limit(1);
+    if (dup) return { savedIdeaId: dup.id, merged: true };
+    const [row] = await tx
+      .insert(savedIdeas)
+      .values({
+        userId,
+        title: f.title,
+        category: f.category,
+        placeId: f.placeId,
+        placeCache: f.placeCache,
+        placeCachedAt: f.placeCachedAt,
+        lat: f.lat,
+        lng: f.lng,
+        priceLevel: f.priceLevel,
+        permanentlyClosed: f.permanentlyClosed,
+        country: f.country,
+        regionOrCity: f.city,
+        extraction: f.extraction,
+        confidence: f.confidence,
+      })
+      .returning({ id: savedIdeas.id });
+    await tx.insert(savedIdeaSources).values({ savedIdeaId: row!.id, kind: "google_maps", url });
+    return { savedIdeaId: row!.id, merged: false };
+  });
 }
 
 /** FR-L9: personal note and someday priority (Must-do / Maybe / Skip). Owner only. */

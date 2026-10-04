@@ -6,7 +6,7 @@
  */
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { ArrowRight, Pencil, Trash2 } from "lucide-react";
+import { ArrowRight, MapPin, Pencil, Trash2 } from "lucide-react";
 import { LIBRARY_CATEGORIES } from "@wandr/core/library";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,10 +19,13 @@ import {
   deleteSaveAction,
   noteAction,
   pickListicleAction,
+  pickSavePlaceAction,
+  searchLibraryPlacesAction,
   toggleBoardAction,
   updateSortAction,
   type LibraryResult,
 } from "@/app/library/actions";
+import { PlacePicker } from "@/components/ideas/place-picker";
 import { categoryLabel } from "./format";
 import { SendToTripSheet, StartTripSheet } from "./trip-sheets";
 
@@ -58,7 +61,9 @@ export function SaveDetail(p: SaveDetailProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [pending, start] = useTransition();
-  const [editing, setEditing] = useState(p.needsReview && !p.fromHome);
+  // FR-23 / FR-L3: a low-confidence save opens on the place search.
+  const [fixing, setFixing] = useState<"place" | "details" | null>(p.needsReview && !p.fromHome ? "place" : null);
+  const setEditing = (on: boolean) => setFixing(on ? "details" : null);
   const [startOpen, setStartOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -128,7 +133,33 @@ export function SaveDetail(p: SaveDetailProps) {
 
       {!p.pending ? (
         <section className="space-y-2">
-          {editing ? (
+          {fixing === "place" ? (
+            <div className="space-y-2 rounded-xl border p-4">
+              <p className="text-sm font-semibold">{p.needsReview ? "Is this right? Find the place." : "Find the right place"}</p>
+              <PlacePicker
+                search={(q) => searchLibraryPlacesAction(q, p.id)}
+                initialQuery={p.needsReview ? "" : p.title}
+                onPick={async (placeId) => {
+                  const r = await pickSavePlaceAction(p.id, placeId);
+                  if (r.ok) {
+                    setFixing(null);
+                    toast({ title: "Place updated" });
+                  }
+                  return r;
+                }}
+                rename={{
+                  defaultValue: p.title,
+                  onRename: async (title) => {
+                    const r = await updateSortAction(p.id, { title });
+                    if (r.ok) setFixing(null);
+                    return r;
+                  },
+                }}
+                onCancel={() => setFixing(null)}
+                onError={(r) => (r.signin ? router.push(r.signin) : toast({ title: r.error, variant: "error" }))}
+              />
+            </div>
+          ) : fixing === "details" ? (
             <form
               className="space-y-3 rounded-xl border p-4"
               onSubmit={(e) => {
@@ -186,13 +217,22 @@ export function SaveDetail(p: SaveDetailProps) {
               </div>
             </form>
           ) : (
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 text-sm font-semibold text-muted-foreground hover:text-foreground"
-              onClick={() => setEditing(true)}
-            >
-              <Pencil className="size-3.5" aria-hidden /> Fix name or place
-            </button>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-sm font-semibold text-muted-foreground hover:text-foreground"
+                onClick={() => setFixing("place")}
+              >
+                <MapPin className="size-3.5" aria-hidden /> Wrong place?
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-sm font-semibold text-muted-foreground hover:text-foreground"
+                onClick={() => setEditing(true)}
+              >
+                <Pencil className="size-3.5" aria-hidden /> Edit name or sort
+              </button>
+            </div>
           )}
         </section>
       ) : null}

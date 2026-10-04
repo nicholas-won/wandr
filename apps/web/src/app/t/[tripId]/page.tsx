@@ -85,6 +85,7 @@ export default async function IdeasPage({ params, searchParams }: PageProps<"/t/
                   tripId={tripId}
                   card={card}
                   size={size}
+                  canEdit={canAdd}
                   extra={
                     card.processing || card.notAPlace ? null : (
                       <>

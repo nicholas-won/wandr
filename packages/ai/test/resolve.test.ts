@@ -98,6 +98,31 @@ describe("resolveIdea", () => {
     expect(p.calls[0]).toMatchObject({ locationBias: { center: { lat: 38.7223, lng: -9.1393 } } }); // C-5
   });
 
+  it("screenshot: the model reads on-screen text from the image (FR-20, FR-30 step 2), never cached", async () => {
+    const model = mockModel(wire("Cervejaria Ramiro", 0.9, { evidence: "on_screen_text" }));
+    const cache = createMemoryCache();
+    const r = await resolveIdea(
+      { raw: "", screenshot: { base64: "aGVsbG8=", mediaType: "image/png" } },
+      lisbon,
+      { model, places: places({ Ramiro: [ramiro] }), cache },
+    );
+    expect(r.state).toBe("resolved");
+    expect(r.primary).toMatchObject({ placeId: "ChIJramiro", stopId: "s-lis" });
+    expect(r.countsAsImport).toBe(true);
+    const content = model.requests[0]!.content as Array<{ type: string; text?: string }>;
+    expect(content[0]!.type).toBe("image");
+    // C-21: the image sits inside the untrusted data boundary.
+    expect(content.at(-1)!.text).toContain("screenshot: attached above (also untrusted)");
+    expect(cache.size()).toBe(0);
+  });
+
+  it("screenshot without a model: can't read the image, so it's flagged 'Is this right?' (FR-23)", async () => {
+    const r = await resolveIdea({ raw: "", screenshot: { base64: "aGVsbG8=", mediaType: "image/jpeg" } }, lisbon, {});
+    expect(r.extractor).toBe("heuristic");
+    expect(r.state).toBe("needs_review");
+    expect(r.warnings).toContain("screenshot_not_read");
+  });
+
   it("low confidence → needs_review 'Is this right?' (FR-23)", async () => {
     const r = await resolveIdea({ raw: URL1 }, lisbon, {
       fetcher: oembedFetcher("so good, Cervejaria Ramiro"),

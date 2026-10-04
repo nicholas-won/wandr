@@ -28,12 +28,15 @@ import {
   deleteSave,
   isBoardOwner,
   isCategory,
+  pickPlaceForSave,
   pickSavedListicle,
   removeBoardMember,
   removeFromBoard,
   renameBoard,
   resolveSavedIdeaJob,
+  saveFromPlace,
   saveToLibrary,
+  searchPlacesForLibrary,
   saveTripIdeaToLibrary,
   sendSavesToTrip,
   setSaveNote,
@@ -42,6 +45,8 @@ import {
 } from "@/server/library";
 import { boardContext } from "@/server/library-context";
 import { queueStopGeocode } from "@/server/geocode";
+import { IdeaInputError } from "@/server/ideas";
+import { PlacePickError, type PlaceSearchOutcome } from "@/server/place-search";
 
 export type LibraryResult<T = object> =
   | ({ ok: true; message?: string } & T)
@@ -382,5 +387,56 @@ export async function removeBoardMemberAction(boardId: string, boardMemberId: st
     return { ok: true };
   } catch (e) {
     return failure(e, libraryRoutes.board(boardId));
+  }
+}
+
+// --- Place search: fix a save's place (FR-23 / FR-L3) or save a place by hand (FR-L20) ---------
+
+const placeIdSchema = z.string().regex(/^[A-Za-z0-9_-]{10,300}$/);
+
+function placeFailure(e: unknown): { ok: false; error: string; signin?: string } {
+  if (e instanceof PlacePickError) {
+    return { ok: false, error: e.message === e.code ? "Couldn't use that place. Try another." : e.message };
+  }
+  if (e instanceof IdeaInputError) return { ok: false, error: "Couldn't find that save." };
+  return failure(e);
+}
+
+export async function searchLibraryPlacesAction(
+  query: string,
+  savedIdeaId?: string | null,
+): Promise<LibraryResult<{ outcome?: PlaceSearchOutcome }>> {
+  try {
+    const { db, userId } = await ensureUser();
+    const outcome = await searchPlacesForLibrary(db, userId, {
+      query: z.string().max(200).parse(query),
+      savedIdeaId: savedIdeaId ? uuid.parse(savedIdeaId) : null,
+    });
+    return { ok: true, outcome };
+  } catch (e) {
+    return placeFailure(e);
+  }
+}
+
+export async function pickSavePlaceAction(savedIdeaId: string, placeId: string): Promise<LibraryResult> {
+  try {
+    const { db, userId } = await requireUser();
+    await pickPlaceForSave(db, userId, { savedIdeaId: uuid.parse(savedIdeaId), placeId: placeIdSchema.parse(placeId) });
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return placeFailure(e);
+  }
+}
+
+/** FR-L20: save a place found by search. Free and unlimited; never an AI import (FR-L22). */
+export async function savePlaceAction(placeId: string): Promise<LibraryResult<{ savedIdeaId?: string; merged?: boolean }>> {
+  try {
+    const { db, userId } = await ensureUser();
+    const r = await saveFromPlace(db, userId, { placeId: placeIdSchema.parse(placeId) });
+    refresh();
+    return { ok: true, ...r };
+  } catch (e) {
+    return placeFailure(e);
   }
 }

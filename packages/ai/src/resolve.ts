@@ -421,6 +421,13 @@ export async function resolveIdea(
   else if (places.length === 0) state = meta.fetchStatus === "failed" && !meta.userText ? "failed" : "needs_review";
   else if (result.kind === "listicle") state = places.every((p) => !p.needsReview) ? "resolved" : "needs_review";
   else state = primary!.needsReview ? "needs_review" : "resolved";
+  // FR-30 step 2: only the model can read on-screen text. A screenshot the heuristic fallback
+  // handled was never actually looked at, so whatever it guessed from the typed note gets
+  // "Is this right?" (FR-23).
+  if (input.screenshot && outcome.extractor === "heuristic") {
+    warnings.push("screenshot_not_read");
+    if (state === "resolved") state = "needs_review";
+  }
 
   const confidence =
     result.kind === "not_a_place"
