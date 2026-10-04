@@ -4,10 +4,9 @@
  * is created, like saving a pasted link.
  */
 import { NextResponse, type NextRequest } from "next/server";
-import { asService, getDb } from "@wandr/db";
+import { getDb } from "@wandr/db";
 import { EVENTS } from "@/inngest/client";
-import { createProvisionalUser } from "@/lib/auth/provisional";
-import { getSession, setFullSession } from "@/lib/auth/session";
+import { getSession } from "@/lib/auth/session";
 import { MAX_SCREENSHOT_BYTES } from "@/lib/storage/screenshots";
 import { IdeaInputError } from "@/server/ideas";
 import { enqueue } from "@/server/jobs";
@@ -31,11 +30,11 @@ export async function POST(req: NextRequest) {
 
     const db = await getDb();
     const session = await getSession();
-    let userId = session.user?.userId;
-    if (!userId) {
-      userId = await asService(db, (tx) => createProvisionalUser(tx));
-      await setFullSession({ userId, needsRecheck: false, provisional: true });
+    // D74: saves belong to a verified number; no anonymous libraries.
+    if (!session.user || session.user.provisional) {
+      return NextResponse.json({ ok: false, error: "Sign up with your number first." }, { status: 401, headers: noStore });
     }
+    const userId = session.user.userId;
     const { savedIdeaId } = await saveScreenshot(db, userId, {
       bytes: new Uint8Array(await file.arrayBuffer()),
       note: typeof note === "string" ? note : undefined,

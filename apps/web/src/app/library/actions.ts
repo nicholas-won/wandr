@@ -11,8 +11,8 @@ import { z } from "zod";
 import { asService, getDb, users } from "@wandr/db";
 import { createBoardLink, revokeBoardLinksForMember } from "@/lib/auth/board-link";
 import { normalizePhone } from "@/lib/auth/phone";
-import { createProvisionalUser, PROVISIONAL_NAME } from "@/lib/auth/provisional";
-import { AuthError, getSession, requireFull, setFullSession } from "@/lib/auth/session";
+import { PROVISIONAL_NAME } from "@/lib/auth/provisional";
+import { AuthError, getSession, requireFull } from "@/lib/auth/session";
 import { libraryRoutes } from "@/lib/library-routes";
 import { routes } from "@/lib/routes";
 import { track } from "@/server/analytics";
@@ -65,11 +65,9 @@ function failure(e: unknown, next: string = libraryRoutes.home): { ok: false; er
 async function ensureUser() {
   const db = await getDb();
   const session = await getSession();
-  let userId = session.user?.userId;
-  if (!userId) {
-    userId = await asService(db, (tx) => createProvisionalUser(tx));
-    await setFullSession({ userId, needsRecheck: false, provisional: true });
-  }
+  // D74: saves belong to a verified number; no anonymous libraries.
+  if (!session.user || session.user.provisional) throw new AuthError("signin_required");
+  const userId = session.user.userId;
   return { db, userId };
 }
 
