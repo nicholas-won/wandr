@@ -32,6 +32,10 @@ export const api: typeof call = async (name, args) => {
 export function errorMessage(e: unknown): string {
   if (e instanceof ApiRequestError) return e.message;
   if (e instanceof TypeError) return "Can't reach the server. Check your connection and try again.";
+  // Anything else is a bug (e.g. a response that doesn't match the contract): log it so it shows
+  // in Metro, and show the detail on dev builds.
+  console.error("[wandr] unexpected error", e);
+  if (__DEV__ && e instanceof Error) return `Something went wrong: ${e.message}`;
   return "Something went wrong. Try again.";
 }
 

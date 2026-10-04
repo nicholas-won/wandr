@@ -27,24 +27,33 @@ export default function NewTrip() {
     setBusy(true);
     setError(null);
     const firstTrip = trips.length === 0;
+    let tripId: string;
     try {
       const dests = parseDestinations(destinations);
-      const { tripId } = await api("createTrip", {
+      ({ tripId } = await api("createTrip", {
         body: {
           ...(name.trim() ? { name: name.trim().slice(0, 80) } : {}),
           ...(dests.length ? { destinations: dests } : {}),
           ...(start ? { startDate: toISODate(start) } : {}),
           ...(end ? { endDate: toISODate(end) } : {}),
         },
-      });
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }));
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+      return;
+    }
+    // The trip exists now. Nothing below may surface as "try again", or a retry makes a duplicate.
+    try {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
       void lastTripStore.set(tripId);
       void refresh().catch(() => undefined);
-      router.dismiss();
+      if (router.canDismiss()) router.dismiss();
       router.push(`/trip/${tripId}`);
       if (firstTrip) void askForPushAfterFirstTrip();
     } catch (e) {
-      setError(errorMessage(e));
+      console.error("[wandr] after createTrip", e);
+      router.replace(`/trip/${tripId}`);
     } finally {
       setBusy(false);
     }
