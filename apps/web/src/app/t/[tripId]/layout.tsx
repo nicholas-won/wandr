@@ -20,6 +20,10 @@ import { queueStopGeocode } from "@/server/geocode";
  */
 export default async function TripLayout({ children, params }: LayoutProps<"/t/[tripId]">) {
   const { tripId } = await params;
+  // Signed out with no personal link: the anon role can't read trips at all, so send them to
+  // sign in instead of failing the query.
+  const { claims: who } = await tripContext(tripId);
+  if (!who.sub && !who.link_member) redirect(routes.signin(routes.trip(tripId)));
   const view = await loadTripView(tripId);
   if (!view) {
     // M-1/M-2: a removed member lands on their money-only view instead (RLS decides).
