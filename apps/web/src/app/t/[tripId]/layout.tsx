@@ -7,6 +7,7 @@ import { AvatarStack } from "@/components/ui/avatar";
 import { visibleSections } from "@/components/trip/sections";
 import { TripNav } from "@/components/trip/trip-nav";
 import { StageChips } from "@/components/trip/stage-chips";
+import { tripSummary } from "@wandr/core";
 import { routes } from "@/lib/routes";
 import { loadTripView, phonePromptVisible, tripContext } from "@/server/context";
 import { queueStopGeocode } from "@/server/geocode";
@@ -23,6 +24,13 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
   // Lazy backfill (FR-S6 / FR-O16): Stops without coordinates are geocoded in the background.
   if (view.stopsNeedGeocode) await queueStopGeocode(tripId);
   const base = routes.trip(tripId);
+  // Founder feedback: dates and order should be readable at a glance.
+  const summary = tripSummary(view.stops);
+  const summaryLine = summary ? (
+    <Link href={`${base}/stops`} className="block text-sm font-medium text-muted-foreground hover:text-foreground">
+      {summary}
+    </Link>
+  ) : null;
   // Q1: personal-link guests get a gentle "confirm your number" nudge after a few votes.
   const { claims } = await tripContext(tripId);
   const showPhonePrompt = await phonePromptVisible(
@@ -71,6 +79,7 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
             <div className="space-y-2">
               <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Trip</p>
               <h1 className="font-display text-2xl font-extrabold leading-tight tracking-tight">{view.trip.name}</h1>
+              {summaryLine}
               {people}
               <StageChips tripId={tripId} vertical />
             </div>
@@ -84,6 +93,7 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
             <div className="flex items-start justify-between gap-3">
               <h1 className="font-display text-3xl font-extrabold leading-tight tracking-tight">{view.trip.name}</h1>
             </div>
+            {summaryLine}
             {people}
             <StageChips tripId={tripId} />
             <TripNav items={items} base={base} />

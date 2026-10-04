@@ -237,7 +237,7 @@ export async function shortlistAction(tripId: string, ideaIds: string[]): Promis
     const { db, claims } = await ctx(tripId);
     await shortlistIdeas(db, claims, { tripId, ideaIds: z.array(z.uuid()).max(10).parse(ideaIds) });
     refresh();
-    return { ok: true, message: `Shortlisted ${ideaIds.length}.` };
+    return { ok: true, message: `${ideaIds.length} marked as top picks.` };
   } catch (e) {
     return failure(e, tripId, "");
   }

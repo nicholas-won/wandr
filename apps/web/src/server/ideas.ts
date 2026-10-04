@@ -87,7 +87,7 @@ export async function addIdea(
 /** A capture the person can fix (bad image, not a member, …). `message` is safe to show. */
 export class IdeaInputError extends Error {
   constructor(
-    public readonly code: "invalid" | "not_found" | "signin",
+    public readonly code: "invalid" | "not_found" | "signin" | "bad_stop" | "not_allowed",
     message: string = code,
   ) {
     super(message);
@@ -440,6 +440,45 @@ export async function fixIdea(
       .where(eq(ideas.id, args.ideaId))
       .returning({ id: ideas.id }),
   );
+}
+
+/** Idea categories people can pick when editing (matches the idea_category enum). */
+export const EDITABLE_CATEGORIES = ["food", "drink", "nightlife", "activity", "sight", "shopping", "stay", "transit", "city", "other"] as const;
+export type EditableCategory = (typeof EDITABLE_CATEGORIES)[number];
+
+/**
+ * Founder feedback ("hard to edit ideas and move them between stops"): change an idea's name,
+ * category or city in one place. Any verified member may (FR-23); RLS decides. `stopId: null`
+ * moves it to Unsorted. The Stop must belong to the same trip.
+ */
+export async function editIdea(
+  db: Db,
+  claims: Claims,
+  args: { ideaId: string; title?: string; category?: EditableCategory; stopId?: string | null },
+) {
+  return withSession(db, claims, async (tx) => {
+    const [idea] = await tx.select({ tripId: ideas.tripId }).from(ideas).where(eq(ideas.id, args.ideaId));
+    if (!idea) throw new IdeaInputError("not_found");
+    if (args.stopId) {
+      const [stop] = await tx
+        .select({ id: stops.id })
+        .from(stops)
+        .where(and(eq(stops.id, args.stopId), eq(stops.tripId, idea.tripId)));
+      if (!stop) throw new IdeaInputError("bad_stop");
+    }
+    const title = args.title?.trim().slice(0, 120);
+    const rows = await tx
+      .update(ideas)
+      .set({
+        ...(title ? { title } : {}),
+        ...(args.category ? { category: args.category } : {}),
+        ...(args.stopId !== undefined ? { stopId: args.stopId } : {}),
+      })
+      .where(eq(ideas.id, args.ideaId))
+      .returning({ id: ideas.id });
+    if (rows.length === 0) throw new IdeaInputError("not_allowed");
+    return rows[0]!;
+  });
 }
 
 // ---------------------------------------------------------------------------

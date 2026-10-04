@@ -103,7 +103,15 @@ export interface TripView {
   members: { id: string; displayName: string; role: string; status: string; isGuestOfHonor: boolean }[];
   /** Invited/pending people. RLS returns these rows to organizers only. */
   invited: { id: string; displayName: string; status: string }[];
-  stops: { id: string; name: string; isDefault: boolean; position: number }[];
+  stops: {
+    id: string;
+    name: string;
+    isDefault: boolean;
+    position: number;
+    startDate: string | null;
+    endDate: string | null;
+    nights: number | null;
+  }[];
   ideas: IdeaCard[];
   /** Some named Stop has never been geocoded (or was renamed): the layout queues it (lazy backfill). */
   stopsNeedGeocode: boolean;
@@ -146,6 +154,9 @@ export async function getTripView(db: Db, claims: Claims, tripId: string): Promi
         geocodedName: stops.geocodedName,
         geocodeSource: stops.geocodeSource,
         geocodedAt: stops.geocodedAt,
+        startDate: stops.startDate,
+        endDate: stops.endDate,
+        nights: stops.nights,
       })
       .from(stops)
       .where(eq(stops.tripId, tripId))
@@ -182,7 +193,15 @@ export async function getTripView(db: Db, claims: Claims, tripId: string): Promi
       invited: memberRows
         .filter((m) => m.status === "invited" || m.status === "pending")
         .map(({ id, displayName, status }) => ({ id, displayName, status })),
-      stops: stopRows.map(({ id, name, isDefault, position }) => ({ id, name, isDefault, position })),
+      stops: stopRows.map(({ id, name, isDefault, position, startDate, endDate, nights }) => ({
+        id,
+        name,
+        isDefault,
+        position,
+        startDate,
+        endDate,
+        nights,
+      })),
       stopsNeedGeocode: stopRows.some((s) => stopNeedsGeocode(s)),
       hasExpenses: anyExpense.length > 0,
       ideas: buildIdeaCards({

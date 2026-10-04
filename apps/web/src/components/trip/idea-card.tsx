@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { fixIdeaAction, pickListicleAction, pickPlaceAction, searchPlacesAction, voteAction } from "@/app/t/[tripId]/actions";
 import { PlacePicker } from "@/components/ideas/place-picker";
+import { IdeaEditor } from "./idea-editor";
 import { routes } from "@/lib/routes";
 import type { IdeaCard as Card_ } from "@/server/cards";
 
@@ -31,10 +32,13 @@ export function IdeaCard({
   size,
   canEdit = true,
   extra,
+  stops = [],
 }: {
   tripId: string;
   card: Card_;
   size: TripSize;
+  /** The trip's cities, for "move to another city" in the editor. */
+  stops?: { id: string; name: string }[];
   /** Verified member (FR-5): may fix the place. Personal-link sessions are sent to sign in. */
   canEdit?: boolean;
   /** Optional footer (status, "Not my pick, but I'm in"; FR-49/50). */
@@ -46,6 +50,7 @@ export function IdeaCard({
   const [pending, start] = useTransition();
   const [myVote, setOptimistic] = useOptimistic(card.myVote);
   const [editing, setEditing] = useState(false);
+  const [editingDetails, setEditingDetails] = useState(false);
 
   /** FR-23 "wrong place? fix": needs a verified number (FR-5). */
   function startFix() {
@@ -134,14 +139,41 @@ export function IdeaCard({
             {card.sharedBy.length ? (
               <span className="text-muted-foreground">· shared by {card.sharedBy.join(", ")}</span>
             ) : null}
-            {!card.needsReview && !card.notAPlace && !editing ? (
-              <button type="button" className="text-muted-foreground underline-offset-2 hover:underline" onClick={startFix}>
-                · Wrong place?
+            {!editing && !editingDetails ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 font-semibold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                onClick={() => (canEdit ? setEditingDetails(true) : router.push(routes.signin(routes.trip(tripId))))}
+              >
+                · <Pencil className="size-3" aria-hidden /> Edit
               </button>
             ) : null}
           </div>
         </div>
       </div>
+
+      {editingDetails ? (
+        <div className="border-t bg-muted/40 px-4 py-3">
+          <IdeaEditor
+            tripId={tripId}
+            idea={{ id: card.id, title: card.title, category: card.category, stopId: card.stopId }}
+            stops={stops}
+            onDone={(message) => {
+              setEditingDetails(false);
+              if (message) toast({ title: message });
+            }}
+            onWrongPlace={
+              card.notAPlace
+                ? undefined
+                : () => {
+                    setEditingDetails(false);
+                    setEditing(true);
+                  }
+            }
+            onError={(r) => (r.signin ? router.push(r.signin) : toast({ title: r.error, variant: "error" }))}
+          />
+        </div>
+      ) : null}
 
       {card.needsReview && !editing ? (
         <div className="flex items-center justify-between gap-2 border-t bg-accent/60 px-4 py-2 text-sm text-accent-foreground">

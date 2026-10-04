@@ -7,12 +7,17 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { notMyPickAction, setIdeaStatusAction } from "@/app/t/[tripId]/stops/actions";
 
-const STATUS_LABEL: Record<string, string> = { shortlisted: "Shortlisted", planned: "Planned", dropped: "Dropped", done: "Done" };
-const NEXT: { status: "shortlisted" | "planned" | "dropped" | "idea"; label: string }[] = [
-  { status: "shortlisted", label: "Shortlist" },
-  { status: "planned", label: "Plan it" },
-  { status: "dropped", label: "Drop" },
+/**
+ * Founder feedback: "Shortlist" and "Plan it" read as the same thing. Same statuses (FR-49), clearer
+ * words: a Top pick is still being decided; Decided means it's happening and goes on the plan.
+ */
+const STATUS_LABEL: Record<string, string> = { shortlisted: "⭐ Top pick", planned: "✓ Decided", dropped: "Dropped", done: "Done" };
+const NEXT: { status: "shortlisted" | "planned" | "dropped" | "idea"; label: string; hint: string }[] = [
+  { status: "shortlisted", label: "⭐ Top pick", hint: "A top contender. The group is still deciding." },
+  { status: "planned", label: "✓ Decided", hint: "It's happening. It goes on the day-by-day plan." },
+  { status: "dropped", label: "Drop", hint: "Not doing it. It moves out of the feed." },
 ];
+const BACK = { status: "idea" as const, label: "Undecide", hint: "Back to a regular idea." };
 
 /**
  * Card footer: status for everyone; organizers change it (FR-49, with undo, P7);
@@ -48,7 +53,7 @@ export function IdeaExtras({
       }
       const prev = r.previous;
       toast({
-        title: next === "idea" ? "Back to ideas" : `${STATUS_LABEL[next]}`,
+        title: next === "idea" ? "Back to a regular idea" : next === "planned" ? "✓ Decided: it's on the plan" : `${STATUS_LABEL[next]}`,
         action: prev ? { label: "Undo", onClick: () => start(async () => void (await setIdeaStatusAction(tripId, ideaId, prev))) } : undefined,
       });
     });
@@ -73,11 +78,12 @@ export function IdeaExtras({
       ) : null}
       {isOrganizer ? (
         <div role="group" aria-label="Organizer: set status" className="ml-auto flex flex-wrap gap-1">
-          {(status === "idea" ? NEXT : [{ status: "idea" as const, label: "Back to ideas" }, ...NEXT.filter((n) => n.status !== status)]).map((n) => (
+          {(status === "idea" ? NEXT : [BACK, ...NEXT.filter((n) => n.status !== status)]).map((n) => (
             <button
               key={n.status}
               type="button"
               disabled={busy}
+              title={n.hint}
               onClick={() => setStatus(n.status)}
               className="rounded-full px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
             >
@@ -85,6 +91,11 @@ export function IdeaExtras({
             </button>
           ))}
         </div>
+      ) : null}
+      {isOrganizer && status !== "dropped" ? (
+        <p className="basis-full text-xs text-muted-foreground">
+          Top pick = still deciding · Decided = it&apos;s happening and goes on the plan
+        </p>
       ) : null}
     </div>
   );

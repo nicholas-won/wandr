@@ -10,7 +10,7 @@ import { tripContext } from "@/server/context";
 import { getMapView } from "@/server/planning";
 import { loadPlanning } from "@/server/planning-context";
 
-const STATUS_LABEL: Record<string, string> = { planned: "Planned", shortlisted: "Shortlisted", done: "Done" };
+const STATUS_LABEL: Record<string, string> = { planned: "✓ Decided", shortlisted: "⭐ Top pick", done: "Done" };
 const UNSORTED = "unsorted";
 
 /**

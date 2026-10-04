@@ -10,8 +10,11 @@ import {
   addIdea,
   addIdeaFromPlace,
   addListiclePicks,
+  EDITABLE_CATEGORIES,
+  editIdea,
   fixIdea,
   IdeaInputError,
+  type EditableCategory,
   pickPlaceForIdea,
   searchPlacesForTrip,
 } from "@/server/ideas";
@@ -204,5 +207,30 @@ export async function addPlaceAction(tripId: string, placeId: string): Promise<A
     return { ok: true, message: r.merged ? "Already on the trip. Added you as a sharer." : undefined };
   } catch (e) {
     return placeFailure(e, tripId);
+  }
+}
+
+/** Founder feedback: edit an idea's name, category or city (move between Stops) in one place. */
+export async function editIdeaAction(
+  tripId: string,
+  ideaId: string,
+  patch: { title?: string; category?: string; stopId?: string | null },
+): Promise<ActionResult> {
+  try {
+    const { db, claims, session } = await me(tripId);
+    if (!session.user || session.user.provisional) {
+      return { ok: false, error: "Confirm your number to edit ideas.", signin: routes.signin(routes.trip(tripId)) };
+    }
+    const category = patch.category && (EDITABLE_CATEGORIES as readonly string[]).includes(patch.category)
+      ? (patch.category as EditableCategory)
+      : undefined;
+    await editIdea(db, claims, { ideaId, title: patch.title, category, stopId: patch.stopId });
+    refresh();
+    return { ok: true, message: "Saved" };
+  } catch (e) {
+    if (e instanceof IdeaInputError) {
+      return { ok: false, error: e.code === "bad_stop" ? "That city isn't on this trip." : "You can't edit that idea." };
+    }
+    return failure(e, tripId);
   }
 }

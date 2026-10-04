@@ -162,7 +162,7 @@ function ImpactList({ preview }: { preview: ReopenPreview }) {
       ) : null}
       <Group title="Polls to pause" items={preview.pollsToPause.map((p) => p.question)} />
       <Group title="Planned items to review" items={preview.plannedItems.map((p) => p.title)} />
-      <Group title="Shortlisted or planned ideas" items={preview.ideas.map((p) => p.title)} />
+      <Group title="Top picks or decided ideas" items={preview.ideas.map((p) => p.title)} />
     </div>
   );
 }
