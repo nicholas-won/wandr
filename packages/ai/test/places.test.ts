@@ -11,8 +11,44 @@ import {
   haversineKm,
   mapRawPlace,
   nameSimilarity,
+  categoryFromPlaceTypes,
+  mapsUrlForPlaceId,
+  toSearchResult,
   type PlaceCandidate,
 } from "../src/places";
+
+describe("manual place picks (FR-23, FR-L20)", () => {
+  it("maps Google types to categories, primary type first", () => {
+    expect(categoryFromPlaceTypes("seafood_restaurant", ["restaurant", "food"])).toBe("food");
+    expect(categoryFromPlaceTypes("cocktail_bar")).toBe("drink");
+    expect(categoryFromPlaceTypes("night_club", ["bar"])).toBe("nightlife");
+    expect(categoryFromPlaceTypes("hotel", ["lodging"])).toBe("stay");
+    expect(categoryFromPlaceTypes("museum")).toBe("sight");
+    expect(categoryFromPlaceTypes(null, ["point_of_interest", "spa"])).toBe("activity");
+    expect(categoryFromPlaceTypes("clothing_store")).toBe("shopping");
+    expect(categoryFromPlaceTypes("locality", ["political"])).toBe("city");
+    expect(categoryFromPlaceTypes(null, ["point_of_interest", "establishment"])).toBe("other");
+  });
+
+  it("rebuilds a Maps link from the place id only (FR-31)", () => {
+    expect(mapsUrlForPlaceId("ChIJramiro123")).toBe("https://www.google.com/maps/place/?q=place_id:ChIJramiro123");
+    expect(() => mapsUrlForPlaceId("../evil")).toThrow(PlacesError);
+  });
+
+  it("search results carry only what the picker shows", () => {
+    const r = toSearchResult(
+      mapRawPlace({ id: "ChIJabcdefghij", displayName: { text: "Ramiro" }, businessStatus: "CLOSED_PERMANENTLY" })!,
+    );
+    expect(r).toEqual({
+      placeId: "ChIJabcdefghij",
+      name: "Ramiro",
+      address: null,
+      rating: null,
+      userRatingCount: null,
+      permanentlyClosed: true,
+    });
+  });
+});
 
 function cand(id: string, name: string, lat: number, lng: number, status = "OPERATIONAL"): PlaceCandidate {
   return mapRawPlace({ id, displayName: { text: name }, location: { latitude: lat, longitude: lng }, businessStatus: status })!;

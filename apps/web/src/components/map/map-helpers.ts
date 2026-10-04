@@ -85,6 +85,17 @@ export function pinBounds(pins: { lat: number; lng: number }[], minSpanDeg = 0.0
   return { west, south, east, north };
 }
 
+/** About a city's width, for a map opened on a Stop with no located places yet. */
+export const CITY_SPAN_DEG = 0.2;
+
+/**
+ * Where the map opens: the pins, else the Stop's own (geocoded) coordinates at city scale
+ * (FR-S9), else null (world view).
+ */
+export function viewBounds(pins: { lat: number; lng: number }[], center: { lat: number; lng: number } | null | undefined): Bounds | null {
+  return pinBounds(pins) ?? (center ? pinBounds([center], CITY_SPAN_DEG) : null);
+}
+
 export function boundsContains(b: Bounds, p: { lat: number; lng: number }): boolean {
   return p.lat >= b.south && p.lat <= b.north && p.lng >= b.west && p.lng <= b.east;
 }

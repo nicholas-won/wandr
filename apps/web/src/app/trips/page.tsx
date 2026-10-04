@@ -10,6 +10,8 @@ import { libraryRoutes } from "@/lib/library-routes";
 import { routes } from "@/lib/routes";
 import { countMySaves } from "@/server/library";
 import { listMyTrips } from "@/server/trips";
+import { listFormerTrips } from "@/server/account";
+import { money } from "@wandr/core";
 
 export const metadata: Metadata = { title: "Your trips" };
 
@@ -22,6 +24,8 @@ export default async function TripsPage() {
   const db = await getDb();
   const trips = session.user ? await listMyTrips(db, session.user.userId) : [];
   const saves = session.user ? await countMySaves(db, session.user.userId) : 0;
+  // FR-9, M-1, M-2: trips they were removed from keep a money-only view.
+  const former = session.user ? await listFormerTrips(db, session.user.userId) : [];
 
   return (
     <div className="flex flex-1 flex-col">
@@ -85,6 +89,33 @@ export default async function TripsPage() {
             </li>
           </ul>
         )}
+
+        {former.length > 0 ? (
+          <section aria-labelledby="former-h" id="former" className="mt-12 space-y-3">
+            <h2 id="former-h" className="font-display text-lg font-bold text-muted-foreground">
+              Former trips · settle up
+            </h2>
+            <ul className="divide-y rounded-2xl border bg-card">
+              {former.map((t) => {
+                const open = Object.entries(t.balances).filter(([, b]) => b !== 0);
+                return (
+                  <li key={t.tripId}>
+                    <Link href={routes.settle(t.tripId)} className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-muted">
+                      <span className="font-semibold">{t.tripName}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {open.length === 0
+                          ? "All settled"
+                          : open
+                              .map(([c, b]) => (b < 0 ? `You owe ${money.formatMinor(-b, c)}` : `You're owed ${money.formatMinor(b, c)}`))
+                              .join(" · ")}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
       </main>
     </div>
   );

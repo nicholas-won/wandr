@@ -40,7 +40,7 @@ export async function StageChips({ tripId, vertical = false }: { tripId: string;
             <span className="sr-only">{c.status === "set" ? "set" : c.status === "voting" ? "voting" : "collecting ideas"}</span>
             {c.status === "voting" && closes.get(c.kind) ? (
               <span className="font-normal">
-                <ClosesLabel at={closes.get(c.kind)!} />
+                <ClosesLabel at={closes.get(c.kind)!} city={v.tripClock} />
               </span>
             ) : null}
           </li>

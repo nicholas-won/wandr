@@ -44,6 +44,12 @@ export type OtpChallengePayload = {
   /** Epoch ms the challenge was issued; attempts are counted from here. */
   issuedAt: number;
   next?: string;
+  /**
+   * Unset = sign in. "add_email" (J-6) and "recheck" (FR-16) are codes for a person who is
+   * already signed in (`userId`); they can never be used to sign in.
+   */
+  purpose?: "add_email" | "recheck";
+  userId?: string;
 };
 
 /** Shared-board personal-link grants (FR-L14): view + add only, per board. */

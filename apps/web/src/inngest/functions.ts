@@ -5,6 +5,7 @@
 import { getDb } from "@wandr/db";
 import { runJob } from "@/server/jobs";
 import { closeDuePolls } from "@/server/polls";
+import { notifyPollsClosingSoon } from "@/server/push";
 import { EVENTS, inngest } from "./client";
 
 /** FR-20–26, FR-30–35 resolution (D65: no vote-question texts). */
@@ -23,14 +24,28 @@ export const savedIdeaAdded = inngest.createFunction(
   },
 );
 
+/** FR-S6 / FR-O16: geocode a trip's Stops (coordinates, country, time zone). */
+export const stopsGeocode = inngest.createFunction(
+  { id: "stops-geocode", triggers: [{ event: EVENTS.stopsGeocode }], retries: 2 },
+  async ({ event }) => {
+    await runJob({ name: EVENTS.stopsGeocode, data: { tripId: String(event.data.tripId) } });
+  },
+);
+
 /** FR-47/48: close polls at their deadline even if nobody opens them (reads also close lazily). */
 export const closeDuePollsJob = inngest.createFunction(
   { id: "close-due-polls", triggers: [{ cron: "*/5 * * * *" }] },
   async () => closeDuePolls(await getDb()),
 );
 
+/** FR-87: push "closing soon" to app users who haven't voted, once per poll (time-sensitive). */
+export const pollsClosingSoonJob = inngest.createFunction(
+  { id: "polls-closing-soon-push", triggers: [{ cron: "*/15 * * * *" }] },
+  async () => notifyPollsClosingSoon(await getDb()),
+);
+
 /**
  * D43 daily idea digest. 17:00 UTC (late morning US, evening Europe). Per-recipient quiet hours
  * need a member timezone, which the data model doesn't have yet.
  */
-export const functions = [ideaAdded, savedIdeaAdded, closeDuePollsJob];
+export const functions = [ideaAdded, savedIdeaAdded, stopsGeocode, closeDuePollsJob, pollsClosingSoonJob];

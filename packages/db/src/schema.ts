@@ -115,6 +115,17 @@ export const users = pgTable("users", {
   smsOptedOut: boolean("sms_opted_out").notNull().default(false), // FR-85
   plan: userPlan("plan").notNull().default("free"), // FR-L20/L21; set by the service only
   lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
+  /**
+   * FR-16 / J-4: a long-inactive number signed in (or WRONG was reported for it). Until an email
+   * code or an organizer confirms it's them, money, approvals and settings stay locked (RLS:
+   * app.recheck_pending). Cleared by the service only.
+   */
+  recheckPendingAt: timestamp("recheck_pending_at", { withTimezone: true }),
+  /**
+   * FR-3 / NFR-7: account deleted. The row stays, anonymized (no phone, email or name), so other
+   * people's balances keep their counterpart; every session for it is refused.
+   */
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: createdAt(),
 });
 
@@ -161,6 +172,20 @@ export const stops = pgTable(
     timezone: text("timezone"), // IANA, FR-O16
     lat: doublePrecision("lat"),
     lng: doublePrecision("lng"),
+    /** ISO 3166-1 alpha-2, from geocoding the Stop's name (FR-S6). */
+    countryCode: text("country_code"),
+    /**
+     * The name last geocoded (success or "no match"). A rename makes it differ, so the Stop is
+     * geocoded again; null means never tried (lazy backfill).
+     */
+    geocodedName: text("geocoded_name"),
+    /** "google" | "open_meteo" | "manual". Google coordinates are refreshed after 30 days (terms). */
+    geocodeSource: text("geocode_source"),
+    geocodedAt: timestamp("geocoded_at", { withTimezone: true }),
+    /** FR-O8 / FR-O15: we arrive on day 1 at this local minute (18:30 = 1110). */
+    arrivalMinute: smallint("arrival_minute"),
+    /** FR-O8 / FR-O15: we leave on the last day at this local minute. */
+    departureMinute: smallint("departure_minute"),
     /** Idea id of the decided lodging, if any (FR-O7). */
     lodgingIdeaId: uuid("lodging_idea_id"),
     createdAt: createdAt(),
@@ -985,3 +1010,37 @@ export const notificationKeys = pgTable("notification_keys", {
   tripId: uuid("trip_id").references(() => trips.id, { onDelete: "cascade" }),
   createdAt: createdAt(),
 }).enableRLS();
+
+// ---------------------------------------------------------------------------
+// Push notifications (FR-87, D65, D75). Service only: tokens are device credentials, and the log
+// says who was told what, so neither is ever readable by members.
+// ---------------------------------------------------------------------------
+
+/** Expo push tokens for people who have the native app. One row per device token. */
+export const pushTokens = pgTable(
+  "push_tokens",
+  {
+    id: id(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    /** "ExponentPushToken[...]". Moves to whoever registered it last (shared or re-signed-in device). */
+    token: text("token").notNull(),
+    platform: text("platform").notNull(), // ios | android
+    createdAt: createdAt(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("push_tokens_token_uq").on(t.token), index("push_tokens_user_idx").on(t.userId)],
+).enableRLS();
+
+/** One row per push sent to a person, for the per-person, per-trip daily cap. */
+export const pushLog = pgTable(
+  "push_log",
+  {
+    id: id(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    tripId: uuid("trip_id").references(() => trips.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // idea_added | join_request | poll_closing | money
+    timeSensitive: boolean("time_sensitive").notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [index("push_log_user_trip_idx").on(t.userId, t.tripId, t.createdAt)],
+).enableRLS();

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { getFormerMoney } from "@/server/account";
 import { UserPlus } from "lucide-react";
 import { PhonePrompt } from "@/components/trip/phone-prompt";
 import { AppHeader } from "@/components/app/app-header";
@@ -7,8 +8,10 @@ import { AvatarStack } from "@/components/ui/avatar";
 import { visibleSections } from "@/components/trip/sections";
 import { TripNav } from "@/components/trip/trip-nav";
 import { StageChips } from "@/components/trip/stage-chips";
+import { tripSummary } from "@wandr/core";
 import { routes } from "@/lib/routes";
 import { loadTripView, phonePromptVisible, tripContext } from "@/server/context";
+import { queueStopGeocode } from "@/server/geocode";
 
 /**
  * Responsive trip shell.
@@ -18,8 +21,24 @@ import { loadTripView, phonePromptVisible, tripContext } from "@/server/context"
 export default async function TripLayout({ children, params }: LayoutProps<"/t/[tripId]">) {
   const { tripId } = await params;
   const view = await loadTripView(tripId);
-  if (!view) notFound();
+  if (!view) {
+    // M-1/M-2: a removed member lands on their money-only view instead (RLS decides).
+    const { db, session } = await tripContext(tripId);
+    if (session.user && !session.user.needsRecheck && (await getFormerMoney(db, session.user.userId, tripId))) {
+      redirect(routes.settle(tripId));
+    }
+    notFound();
+  }
+  // Lazy backfill (FR-S6 / FR-O16): Stops without coordinates are geocoded in the background.
+  if (view.stopsNeedGeocode) await queueStopGeocode(tripId);
   const base = routes.trip(tripId);
+  // Founder feedback: dates and order should be readable at a glance.
+  const summary = tripSummary(view.stops);
+  const summaryLine = summary ? (
+    <Link href={`${base}/stops`} className="block text-sm font-medium text-muted-foreground hover:text-foreground">
+      {summary}
+    </Link>
+  ) : null;
   // Q1: personal-link guests get a gentle "confirm your number" nudge after a few votes.
   const { claims } = await tripContext(tripId);
   const showPhonePrompt = await phonePromptVisible(
@@ -68,6 +87,7 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
             <div className="space-y-2">
               <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Trip</p>
               <h1 className="font-display text-2xl font-extrabold leading-tight tracking-tight">{view.trip.name}</h1>
+              {summaryLine}
               {people}
               <StageChips tripId={tripId} vertical />
             </div>
@@ -81,6 +101,7 @@ export default async function TripLayout({ children, params }: LayoutProps<"/t/[
             <div className="flex items-start justify-between gap-3">
               <h1 className="font-display text-3xl font-extrabold leading-tight tracking-tight">{view.trip.name}</h1>
             </div>
+            {summaryLine}
             {people}
             <StageChips tripId={tripId} />
             <TripNav items={items} base={base} />

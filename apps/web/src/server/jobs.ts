@@ -12,7 +12,8 @@ import { EVENTS, inngest } from "@/inngest/client";
 export type JobEvent =
   | { name: typeof EVENTS.ideaAdded; data: { ideaId: string } }
   | { name: typeof EVENTS.savedIdeaAdded; data: { savedIdeaId: string } }
-  | { name: typeof EVENTS.expenseChanged; data: { tripId: string; expenseId: string } };
+  | { name: typeof EVENTS.expenseChanged; data: { tripId: string; expenseId: string; actorUserId?: string | null } }
+  | { name: typeof EVENTS.stopsGeocode; data: { tripId: string } };
 
 /** Run one job in-process (the after() fallback, and the Inngest function bodies). */
 export async function runJob(e: JobEvent): Promise<void> {
@@ -21,6 +22,9 @@ export async function runJob(e: JobEvent): Promise<void> {
     case EVENTS.ideaAdded: {
       const { handleIdeaAdded } = await import("./notify");
       await handleIdeaAdded(db, e.data.ideaId);
+      // FR-87: app users hear about it by push once the card has a name (D65: never by text).
+      const { notifyIdeaAdded } = await import("./push");
+      await notifyIdeaAdded(db, e.data.ideaId);
       return;
     }
     case EVENTS.savedIdeaAdded: {
@@ -28,8 +32,17 @@ export async function runJob(e: JobEvent): Promise<void> {
       await resolveSavedIdeaJob(db, e.data.savedIdeaId);
       return;
     }
+    case EVENTS.stopsGeocode: {
+      // FR-S6 / FR-O16: Stop coordinates and time zone, then re-file Unsorted ideas.
+      const { geocodeStops } = await import("./geocode");
+      await geocodeStops(db, e.data.tripId);
+      return;
+    }
     case EVENTS.expenseChanged: {
-      // D65: money updates live in the app ("What changed"); nothing is texted.
+      // D65: money updates live in the app ("What changed"); nothing is texted. App users get a
+      // private push with their own balance (FR-87).
+      const { notifyMoneyChange } = await import("./push");
+      await notifyMoneyChange(db, e.data);
       return;
     }
   }

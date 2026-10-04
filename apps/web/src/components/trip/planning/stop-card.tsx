@@ -10,6 +10,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { stopDateLine } from "@wandr/core";
 import { cn } from "@/lib/utils";
 import {
   moveStopAction,
@@ -39,9 +40,12 @@ export function StopCard({
   isLast,
   showOrder,
   warning,
+  index,
 }: {
   tripId: string;
   stop: StopView;
+  /** Position in the itinerary (1-based), shown as the Stop's number. */
+  index: number;
   meId: string;
   isOrganizer: boolean;
   canMarkAttendance: boolean;
@@ -108,9 +112,39 @@ export function StopCard({
 
   return (
     <Card className="p-4">
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-3">
+        {showOrder ? (
+          <span
+            aria-hidden
+            className="grid size-9 shrink-0 place-items-center rounded-full bg-primary font-display text-base font-bold text-primary-foreground"
+          >
+            {index}
+          </span>
+        ) : null}
         <div className="min-w-0 flex-1">
-          <h3 className="font-display text-lg font-bold leading-tight">{stop.label}</h3>
+          <h3 className="font-display text-xl font-bold leading-tight">
+            {showOrder ? <span className="sr-only">Stop {index}: </span> : null}
+            {stop.name || "Your destination"}
+          </h3>
+          {(() => {
+            const d = stopDateLine(stop);
+            if (!d.range && !d.length) {
+              return isOrganizer ? (
+                <button type="button" onClick={() => setEditing(true)} className="mt-0.5 text-sm font-semibold text-primary hover:underline">
+                  + Add dates
+                </button>
+              ) : (
+                <p className="mt-0.5 text-sm text-muted-foreground">Dates not set yet</p>
+              );
+            }
+            return (
+              <p className="mt-0.5 text-sm">
+                {d.range ? <span className="font-semibold">{d.range}</span> : null}
+                {d.range && d.length ? <span className="text-muted-foreground"> · </span> : null}
+                {d.length ? <span className="text-muted-foreground">{d.length}</span> : null}
+              </p>
+            );
+          })()}
           <p className="text-sm text-muted-foreground">
             {stop.ideaCount} {stop.ideaCount === 1 ? "idea" : "ideas"}
           </p>

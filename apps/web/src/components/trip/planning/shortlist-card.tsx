@@ -59,11 +59,11 @@ export function ShortlistCard({ tripId, s, showStop }: { tripId: string; s: Shor
                   if (!r.ok) {
                     if (r.signin) router.push(r.signin);
                     else toast({ title: r.error, variant: "error" });
-                  } else toast({ title: r.message ?? "Shortlisted" });
+                  } else toast({ title: r.message ?? "Marked as top picks" });
                 })
               }
             >
-              Shortlist these {toShortlist.length}
+              Make these {toShortlist.length} top picks
             </Button>
           ) : null}
         </div>

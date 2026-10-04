@@ -11,6 +11,7 @@ import { libraryRoutes } from "@/lib/library-routes";
 import { track } from "@/server/analytics";
 import { EVENTS } from "@/inngest/client";
 import { enqueue } from "@/server/jobs";
+import { queueStopGeocode } from "@/server/geocode";
 import { saveToLibrary } from "@/server/library";
 import { createTrip, DEFAULT_TRIP_NAME } from "@/server/trips";
 
@@ -73,6 +74,7 @@ export async function startClassicTripAction(formData: FormData) {
     startDate: isoDate(formData.get("start")),
     endDate: isoDate(formData.get("end")),
   });
+  if (destinations.length) await queueStopGeocode(tripId, { force: true }); // FR-S6 / FR-O16
   after(() =>
     track(db, { name: "trip_created", tripId, memberId, props: { via: "classic", destinations: destinations.length } }),
   );

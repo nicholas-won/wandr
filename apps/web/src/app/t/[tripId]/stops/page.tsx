@@ -5,6 +5,7 @@ import { AddStopForm, CityIdeaRow, NewCityPrompt } from "@/components/trip/plann
 import { StageManager } from "@/components/trip/planning/stage-manager";
 import { StopCard } from "@/components/trip/planning/stop-card";
 import { routes } from "@/lib/routes";
+import { tripSummary } from "@wandr/core";
 import { loadPlanning } from "@/server/planning-context";
 
 /**
@@ -16,6 +17,7 @@ export default async function StopsPage({ params }: PageProps<"/t/[tripId]/stops
   const v = await loadPlanning(tripId);
   if (!v) notFound();
   const solo = v.size === "solo";
+  const summary = v.showStops ? tripSummary(v.stops) : null;
   const needsFirstName = v.stops.length === 1 && !v.stops[0]!.name;
   const stopRefs = v.stops.map((s) => ({ id: s.id, name: s.name, isDefault: s.isDefault }));
   const warnings = new Map(
@@ -38,7 +40,7 @@ export default async function StopsPage({ params }: PageProps<"/t/[tripId]/stops
 
         <section aria-labelledby="stops-h" className="space-y-3">
           <h2 id="stops-h" className="font-display text-xl font-bold">
-            {v.showStops ? "Stops" : "Where you're going"}
+            {v.showStops ? "Your route" : "Where you're going"}
           </h2>
           {!v.me.verified && !solo ? (
             <p className="text-sm text-muted-foreground">
@@ -48,10 +50,16 @@ export default async function StopsPage({ params }: PageProps<"/t/[tripId]/stops
               to mark which Stops you&apos;ll be at.
             </p>
           ) : null}
-          <ul className="grid gap-3 xl:grid-cols-2">
+          {summary ? <p className="text-sm font-medium text-muted-foreground">{summary}</p> : null}
+          {/* An itinerary reads top to bottom: one column, numbered, joined by a line. */}
+          <ol className="relative space-y-3">
             {v.stops.map((s, i) => (
-              <li key={s.id}>
+              <li key={s.id} className="relative">
+                {v.showStops && i < v.stops.length - 1 ? (
+                  <span aria-hidden className="absolute -bottom-3 left-[2.15rem] h-3 w-0.5 bg-border" />
+                ) : null}
                 <StopCard
+                  index={i + 1}
                   tripId={tripId}
                   stop={s}
                   meId={v.me.memberId}
@@ -64,7 +72,7 @@ export default async function StopsPage({ params }: PageProps<"/t/[tripId]/stops
                 />
               </li>
             ))}
-          </ul>
+          </ol>
           {v.unsortedCount ? (
             <p className="text-sm text-muted-foreground">
               {v.unsortedCount} {v.unsortedCount === 1 ? "idea isn't" : "ideas aren't"} in a Stop yet.{" "}
@@ -109,6 +117,7 @@ export default async function StopsPage({ params }: PageProps<"/t/[tripId]/stops
               stages={v.stages.filter((s) => s.kind !== "getting_around" || v.stops.length > 1)}
               solo={solo}
               isOrganizer={v.me.isOrganizer}
+              city={v.tripClock}
             />
           </CardContent>
         </Card>

@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 3200;
+// E2E_PORT lets parallel checkouts run e2e side by side.
+const PORT = Number(process.env.E2E_PORT) || 3200;
 
 /**
  * End-to-end core flows (§7a: Playwright). Runs `next dev` (own build dir, so it can run next to
@@ -23,6 +24,7 @@ export default defineConfig({
     url: `http://localhost:${PORT}`,
     timeout: 300_000,
     reuseExistingServer: false,
-    env: { PGLITE_DIR: ".data/e2e", NEXT_DIST_DIR: ".next-e2e" },
+    // GEOCODER=off: no network in e2e; Stops simply stay without coordinates (silent).
+    env: { PGLITE_DIR: ".data/e2e", NEXT_DIST_DIR: ".next-e2e", GEOCODER: "off" },
   },
 });

@@ -12,6 +12,7 @@ import {
   markerLabel,
   pinBounds,
   pinSetKey,
+  viewBounds,
   type LocatedPin,
   type MapMarker,
 } from "./map-helpers";
@@ -20,6 +21,8 @@ import type { MapAdapter, MapTheme } from "./providers/types";
 export interface MapCanvasProps {
   pins: LocatedPin[];
   route: { lat: number; lng: number }[];
+  /** The Stop's own coordinates: where the map opens when no pin is located (FR-S9). */
+  center?: { lat: number; lng: number } | null;
   selectedId: string | null;
   onSelect?: (id: string) => void;
   interactive: boolean;
@@ -52,7 +55,7 @@ function useReducedMotion(): boolean {
 }
 
 export default function MapCanvas(props: MapCanvasProps) {
-  const { pins, route, selectedId, onSelect, interactive, cluster, groupNames, ariaLabel, className, onFail } = props;
+  const { pins, route, center, selectedId, onSelect, interactive, cluster, groupNames, ariaLabel, className, onFail } = props;
   const el = useRef<HTMLDivElement>(null);
   const adapter = useRef<MapAdapter | null>(null);
   const [ready, setReady] = useState(false);
@@ -63,8 +66,10 @@ export default function MapCanvas(props: MapCanvasProps) {
     callbacks.current = { onSelect, onFail };
   });
   const pinsRef = useRef(pins);
+  const centerRef = useRef(center);
   useEffect(() => {
     pinsRef.current = pins;
+    centerRef.current = center;
   });
 
   // Create the map once.
@@ -77,7 +82,7 @@ export default function MapCanvas(props: MapCanvasProps) {
       container,
       theme: currentTheme(),
       interactive,
-      initialBounds: pinBounds(pinsRef.current),
+      initialBounds: viewBounds(pinsRef.current, centerRef.current),
       onZoom: (z: number) => setZoom(Math.floor(z)),
       onMarkerClick: (m: MapMarker) => {
         if (m.kind === "pin") callbacks.current.onSelect?.(m.pin.id);
@@ -142,10 +147,10 @@ export default function MapCanvas(props: MapCanvasProps) {
       firstFit.current = false;
       return; // initial bounds were passed at creation
     }
-    const b = pinBounds(pinsRef.current);
+    const b = viewBounds(pinsRef.current, centerRef.current);
     if (b) adapter.current?.fitBounds(b, !reduced);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fit only when the pin set changes
-  }, [ready, setKey]);
+  }, [ready, setKey, center?.lat, center?.lng]);
 
   const markers = useMemo(
     () => clusterPins(pins, zoom, { selectedId, cluster, groupNames }),

@@ -12,7 +12,10 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { fixIdeaAction, pickListicleAction, voteAction } from "@/app/t/[tripId]/actions";
+import { fixIdeaAction, pickListicleAction, pickPlaceAction, searchPlacesAction, voteAction } from "@/app/t/[tripId]/actions";
+import { PlacePicker } from "@/components/ideas/place-picker";
+import { IdeaEditor } from "./idea-editor";
+import { routes } from "@/lib/routes";
 import type { IdeaCard as Card_ } from "@/server/cards";
 
 const VOTES: VoteValue[] = ["must", "down", "pass"];
@@ -27,11 +30,17 @@ export function IdeaCard({
   tripId,
   card,
   size,
+  canEdit = true,
   extra,
+  stops = [],
 }: {
   tripId: string;
   card: Card_;
   size: TripSize;
+  /** The trip's cities, for "move to another city" in the editor. */
+  stops?: { id: string; name: string }[];
+  /** Verified member (FR-5): may fix the place. Personal-link sessions are sent to sign in. */
+  canEdit?: boolean;
   /** Optional footer (status, "Not my pick, but I'm in"; FR-49/50). */
   extra?: ReactNode;
 }) {
@@ -41,6 +50,13 @@ export function IdeaCard({
   const [pending, start] = useTransition();
   const [myVote, setOptimistic] = useOptimistic(card.myVote);
   const [editing, setEditing] = useState(false);
+  const [editingDetails, setEditingDetails] = useState(false);
+
+  /** FR-23 "wrong place? fix": needs a verified number (FR-5). */
+  function startFix() {
+    if (!canEdit) router.push(routes.signin(routes.trip(tripId)));
+    else setEditing(true);
+  }
 
   function vote(v: VoteValue) {
     const next = myVote === v ? null : v;
@@ -91,31 +107,7 @@ export function IdeaCard({
       <div className="p-4">
         <div className="min-w-0">
           <div className="flex items-start justify-between gap-2">
-            {editing ? (
-              <form
-                className="flex w-full gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const title = String(new FormData(e.currentTarget).get("title") ?? "");
-                  start(async () => {
-                    const r = await fixIdeaAction(tripId, card.id, title);
-                    if (!r.ok) toast({ title: r.error, variant: "error" });
-                    setEditing(false);
-                  });
-                }}
-              >
-                <input
-                  name="title"
-                  defaultValue={card.title}
-                  autoFocus
-                  aria-label="Place name"
-                  className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1"
-                />
-                <button className="text-sm font-semibold text-primary">Save</button>
-              </form>
-            ) : (
-              <h3 className="font-display text-lg font-bold leading-tight">{card.title}</h3>
-            )}
+            <h3 className="font-display text-lg font-bold leading-tight">{card.title}</h3>
             {card.rank && size !== "solo" ? (
               <span className="shrink-0 text-xs font-semibold text-muted-foreground">#{card.rank}</span>
             ) : null}
@@ -147,18 +139,78 @@ export function IdeaCard({
             {card.sharedBy.length ? (
               <span className="text-muted-foreground">· shared by {card.sharedBy.join(", ")}</span>
             ) : null}
+            {!editing && !editingDetails ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 font-semibold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                onClick={() => (canEdit ? setEditingDetails(true) : router.push(routes.signin(routes.trip(tripId))))}
+              >
+                · <Pencil className="size-3" aria-hidden /> Edit
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
+
+      {editingDetails ? (
+        <div className="border-t bg-muted/40 px-4 py-3">
+          <IdeaEditor
+            tripId={tripId}
+            idea={{ id: card.id, title: card.title, category: card.category, stopId: card.stopId }}
+            stops={stops}
+            onDone={(message) => {
+              setEditingDetails(false);
+              if (message) toast({ title: message });
+            }}
+            onWrongPlace={
+              card.notAPlace
+                ? undefined
+                : () => {
+                    setEditingDetails(false);
+                    setEditing(true);
+                  }
+            }
+            onError={(r) => (r.signin ? router.push(r.signin) : toast({ title: r.error, variant: "error" }))}
+          />
+        </div>
+      ) : null}
 
       {card.needsReview && !editing ? (
         <div className="flex items-center justify-between gap-2 border-t bg-accent/60 px-4 py-2 text-sm text-accent-foreground">
           <span className="inline-flex items-center gap-1.5">
             <MapPin className="size-4" aria-hidden /> Is this the right place?
           </span>
-          <button className="inline-flex items-center gap-1 font-semibold" onClick={() => setEditing(true)}>
+          <button className="inline-flex items-center gap-1 font-semibold" onClick={startFix}>
             <Pencil className="size-3.5" aria-hidden /> Fix
           </button>
+        </div>
+      ) : null}
+
+      {editing ? (
+        <div className="border-t bg-accent/30 px-4 py-3">
+          <p className="mb-2 text-sm font-semibold">Find the right place</p>
+          <PlacePicker
+            search={(q) => searchPlacesAction(tripId, q, card.id)}
+            initialQuery={card.needsReview ? "" : card.title}
+            onPick={async (placeId) => {
+              const r = await pickPlaceAction(tripId, card.id, placeId);
+              if (r.ok) {
+                setEditing(false);
+                toast({ title: "Place updated" });
+              }
+              return r;
+            }}
+            rename={{
+              defaultValue: card.title,
+              onRename: async (title) => {
+                const r = await fixIdeaAction(tripId, card.id, title);
+                if (r.ok) setEditing(false);
+                return r;
+              },
+            }}
+            onCancel={() => setEditing(false)}
+            onError={(r) => (r.signin ? router.push(r.signin) : toast({ title: r.error, variant: "error" }))}
+          />
         </div>
       ) : null}
 

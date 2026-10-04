@@ -13,6 +13,7 @@ import {
   pinSetKey,
   project,
   routeCoordinates,
+  viewBounds,
   type LocatedPin,
   type MapPin,
 } from "./map-helpers";
@@ -173,5 +174,19 @@ describe("markerLabel / pinSetKey", () => {
 
   it("is order-independent", () => {
     expect(pinSetKey([{ id: "b" }, { id: "a" }])).toBe(pinSetKey([{ id: "a" }, { id: "b" }]));
+  });
+});
+
+describe("viewBounds (FR-S9)", () => {
+  it("fits the pins when there are any", () => {
+    expect(viewBounds([{ lat: 1, lng: 2 }], { lat: 50, lng: 50 })).toEqual(pinBounds([{ lat: 1, lng: 2 }]));
+  });
+  it("opens on the Stop at city scale when nothing is located", () => {
+    const b = viewBounds([], { lat: 38.72, lng: -9.14 })!;
+    expect(b.north - b.south).toBeCloseTo(0.2);
+    expect(boundsContains(b, { lat: 38.72, lng: -9.14 })).toBe(true);
+  });
+  it("null without pins or a Stop location", () => {
+    expect(viewBounds([], null)).toBeNull();
   });
 });

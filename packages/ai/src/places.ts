@@ -6,7 +6,7 @@
  * (ideas.place_cache + place_cached_at) and refresh on view.
  */
 import type { GeoPoint } from "./intake";
-import type { StopContext } from "./extract";
+import type { IdeaCategory, StopContext } from "./extract";
 
 export const PLACES_BASE_URL = "https://places.googleapis.com/v1";
 export const PLACES_SEARCH_URL = `${PLACES_BASE_URL}/places:searchText`;
@@ -391,5 +391,79 @@ export function choosePlace(
     nearestStop: ns ? { stopId: ns.stop.id, distanceKm: ns.distanceKm } : null,
     permanentlyClosed: chosen.display.businessStatus === "CLOSED_PERMANENTLY",
     temporarilyClosed: chosen.display.businessStatus === "CLOSED_TEMPORARILY",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Manual place picks (FR-23 "wrong place? fix", FR-L20 add by hand)
+// ---------------------------------------------------------------------------
+
+/** Google place types → our categories. Checked in order, so specific types win. */
+const TYPE_CATEGORIES: Array<[IdeaCategory, RegExp]> = [
+  ["nightlife", /^(night_club|dance_hall|karaoke|comedy_club|live_music_venue)$/],
+  [
+    "drink",
+    /^(bar|pub|wine_bar|cocktail_bar|brewery|winery|brewpub|coffee_shop|cafe|tea_house|beer_garden|sports_bar|lounge_bar|hookah_bar|irish_pub|liquor_store)$/,
+  ],
+  [
+    "stay",
+    /^(lodging|hotel|motel|hostel|resort_hotel|bed_and_breakfast|guest_house|inn|campground|camping_cabin|cottage|farmstay|extended_stay_hotel|budget_japanese_inn|japanese_inn|private_guest_room|rv_park)$/,
+  ],
+  [
+    "food",
+    /(^restaurant$|_restaurant$|^(bakery|food_court|meal_takeaway|meal_delivery|deli|diner|bistro|ice_cream_shop|dessert_shop|confectionery|donut_shop|bagel_shop|juice_shop|acai_shop|chocolate_shop|food|cafeteria)$)/,
+  ],
+  [
+    "transit",
+    /^(airport|international_airport|train_station|bus_station|subway_station|transit_station|light_rail_station|ferry_terminal|car_rental|heliport)$/,
+  ],
+  [
+    "sight",
+    /^(museum|art_gallery|tourist_attraction|historical_landmark|historical_place|monument|church|hindu_temple|mosque|synagogue|place_of_worship|cultural_landmark|sculpture|castle|palace|park|national_park|state_park|garden|botanical_garden|beach|observation_deck|plaza|zoo|aquarium|scenic_point)$/,
+  ],
+  [
+    "activity",
+    /^(amusement_park|water_park|bowling_alley|spa|golf_course|ski_resort|stadium|arena|concert_hall|performing_arts_theater|movie_theater|casino|hiking_area|tour_agency|adventure_sports_center|wellness_center|sauna|yoga_studio|amusement_center|escape_room|cultural_center|event_venue|marina|swimming_pool)$/,
+  ],
+  ["shopping", /(_store$|^(shopping_mall|market|supermarket|flea_market|farmers_market|gift_shop)$)/],
+  [
+    "city",
+    /^(locality|administrative_area_level_1|administrative_area_level_2|country|sublocality|neighborhood|colloquial_area|archipelago|island|natural_feature)$/,
+  ],
+];
+
+/** A category for a picked place: Google's primary type first, then its other types. */
+export function categoryFromPlaceTypes(primaryType: string | null | undefined, types: string[] = []): IdeaCategory {
+  for (const t of [primaryType, ...types]) {
+    if (!t) continue;
+    for (const [cat, re] of TYPE_CATEGORIES) if (re.test(t)) return cat;
+  }
+  return "other";
+}
+
+/** A Google Maps link rebuilt from the place id, the only thing we store long term (FR-31). */
+export function mapsUrlForPlaceId(placeId: string): string {
+  if (!isPlaceId(placeId)) throw new PlacesError(400, "invalid place id");
+  return `https://www.google.com/maps/place/?q=place_id:${placeId}`;
+}
+
+/** One row of the place picker (display only, never stored). */
+export interface PlaceSearchResult {
+  placeId: string;
+  name: string;
+  address: string | null;
+  rating: number | null;
+  userRatingCount: number | null;
+  permanentlyClosed: boolean;
+}
+
+export function toSearchResult(c: PlaceCandidate): PlaceSearchResult {
+  return {
+    placeId: c.placeId,
+    name: c.display.name,
+    address: c.display.address,
+    rating: c.display.rating,
+    userRatingCount: c.display.userRatingCount,
+    permanentlyClosed: c.display.businessStatus === "CLOSED_PERMANENTLY",
   };
 }

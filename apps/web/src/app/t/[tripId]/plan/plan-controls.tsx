@@ -5,7 +5,7 @@ import { useTransition } from "react";
 import { Lock, LockOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import { addToPlanAction, applyPlanAction, updatePlanItemAction } from "./actions";
+import { addToPlanAction, applyPlanAction, setTravelTimesAction, updatePlanItemAction } from "./actions";
 
 export function ApplyPlan({ tripId, stopId, backHref }: { tripId: string; stopId: string | null; backHref: string }) {
   const [pending, start] = useTransition();
@@ -87,6 +87,67 @@ export function ItemControls({
         {locked ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
       </button>
     </div>
+  );
+}
+
+/**
+ * FR-O8 / FR-O15: "We arrive Day 1 at 18:30" / "We leave the last day at 11:00". Tucked into a
+ * disclosure so it stays out of the way until needed (§2a).
+ */
+export function TravelTimes({
+  tripId,
+  stopId,
+  arrive,
+  leave,
+  zoneLabel,
+}: {
+  tripId: string;
+  stopId: string;
+  arrive: string;
+  leave: string;
+  zoneLabel: string | null;
+}) {
+  const [pending, start] = useTransition();
+  const { toast } = useToast();
+  const router = useRouter();
+  const set = !!(arrive || leave);
+  return (
+    <details className="rounded-xl border bg-card p-3 text-sm">
+      <summary className="cursor-pointer font-semibold">
+        {set ? "Arrival and departure times" : "Add arrival and departure times"}
+      </summary>
+      <form
+        className="mt-3 space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const fd = new FormData(e.currentTarget);
+          start(async () => {
+            const r = await setTravelTimesAction(tripId, stopId, String(fd.get("arrive") || "") || null, String(fd.get("leave") || "") || null);
+            if (!r.ok) {
+              if (r.signin) router.push(r.signin);
+              else toast({ title: r.error, variant: "error" });
+              return;
+            }
+            toast({ title: r.message ?? "Saved" });
+          });
+        }}
+      >
+        <p className="text-muted-foreground">
+          Travel days get shorter plans; a late arrival gets dinner only.{zoneLabel ? ` Local time (${zoneLabel}).` : ""}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor={`arrive-${stopId}`}>We arrive Day 1 at</label>
+          <input id={`arrive-${stopId}`} name="arrive" type="time" defaultValue={arrive} className="rounded-md border border-input bg-card px-2 py-1" />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor={`leave-${stopId}`}>We leave the last day at</label>
+          <input id={`leave-${stopId}`} name="leave" type="time" defaultValue={leave} className="rounded-md border border-input bg-card px-2 py-1" />
+        </div>
+        <Button type="submit" size="sm" loading={pending}>
+          Save times
+        </Button>
+      </form>
+    </details>
   );
 }
 

@@ -44,11 +44,14 @@ export function StageManager({
   stages,
   solo,
   isOrganizer,
+  city = null,
 }: {
   tripId: string;
   stages: StageView[];
   solo: boolean;
   isOrganizer: boolean;
+  /** FR-O16: the trip city's clock for deadlines. */
+  city?: { name: string; timeZone: string } | null;
 }) {
   const [busy, start] = useTransition();
   const [pending, setPending] = useState<Pending | null>(null);
@@ -91,7 +94,7 @@ export function StageManager({
                 {s.status === "voting" && s.closesAt ? (
                   <>
                     {" · "}
-                    <ClosesLabel at={s.closesAt} />
+                    <ClosesLabel at={s.closesAt} city={city} />
                   </>
                 ) : null}
               </p>
@@ -159,7 +162,7 @@ function ImpactList({ preview }: { preview: ReopenPreview }) {
       ) : null}
       <Group title="Polls to pause" items={preview.pollsToPause.map((p) => p.question)} />
       <Group title="Planned items to review" items={preview.plannedItems.map((p) => p.title)} />
-      <Group title="Shortlisted or planned ideas" items={preview.ideas.map((p) => p.title)} />
+      <Group title="Top picks or decided ideas" items={preview.ideas.map((p) => p.title)} />
     </div>
   );
 }

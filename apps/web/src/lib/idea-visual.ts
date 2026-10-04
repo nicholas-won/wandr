@@ -61,6 +61,25 @@ export function photoSrc(kind: PhotoKind, id: string, photoName: string): string
   return `/api/place-photo/${kind}/${id}?v=${shortHash(photoName)}`;
 }
 
+/**
+ * Same-origin URL for an uploaded screenshot (FR-20), by idea / save source row id. The route
+ * checks the viewer can see the item; the bytes are never public.
+ */
+export function screenshotSrc(kind: PhotoKind, sourceId: string): string {
+  return `/api/screenshot/${kind}/${sourceId}`;
+}
+
+/** The card's fallback visual: a source thumbnail, else the uploaded screenshot. */
+export function sourceThumb(
+  kind: PhotoKind,
+  sources: { id?: string; kind: string; thumbnailUrl: string | null; storagePath?: string | null }[],
+): string | null {
+  const thumb = sources.find((s) => s.thumbnailUrl)?.thumbnailUrl;
+  if (thumb) return thumb;
+  const shot = sources.find((s) => s.kind === "screenshot" && s.storagePath && s.id);
+  return shot ? screenshotSrc(kind, shot.id!) : null;
+}
+
 export function isCacheStale(cachedAt: Date | string | null | undefined, now: Date = new Date()): boolean {
   if (!cachedAt) return true;
   const t = typeof cachedAt === "string" ? Date.parse(cachedAt) : cachedAt.getTime();
