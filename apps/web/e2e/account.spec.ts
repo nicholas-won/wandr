@@ -11,7 +11,7 @@ test("account: name, email, delete", async ({ page }, info) => {
   await startTrip(page, { phone, name: "Dana", trip: "Dana solo" });
 
   await page.goto("/account");
-  await expect(page.getByRole("heading", { name: "Account" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
   await expect(page.getByText(/•••• \d{4}/)).toBeVisible();
 
   await page.getByLabel("Your name").fill("Dana B");
