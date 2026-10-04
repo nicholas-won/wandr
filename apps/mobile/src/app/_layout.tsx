@@ -47,6 +47,12 @@ function RootStack({ fontsLoaded }: { fontsLoaded: boolean }) {
 
   useNotificationRouting(ready);
 
+  // Dev-only shortcut: open a route at launch (EXPO_PUBLIC_DEV_START_ROUTE=/trip/t-tokyo).
+  useEffect(() => {
+    const start = process.env.EXPO_PUBLIC_DEV_START_ROUTE;
+    if (__DEV__ && ready && start) router.push(start as never);
+  }, [ready]);
+
   if (loading) return null;
 
   const base = dark ? DarkTheme : DefaultTheme;

@@ -46,7 +46,7 @@ export default function Invite() {
 
   if (result) {
     return (
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 16 }}>
         <Card style={{ padding: 16, gap: 8 }}>
           <Heading level={2}>{result.name}'s link is ready</Heading>
           <Body muted>
@@ -78,7 +78,7 @@ export default function Invite() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: c.background }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
         <Body muted>Each person gets their own link to view and vote. Their number is never shown to the group.</Body>
         <TextField label="Name" value={name} onChangeText={setName} placeholder="Sam" autoCapitalize="words" autoFocus maxLength={40} />
         <TextField

@@ -52,7 +52,7 @@ export default function NewTrip() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 18 }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 18 }} keyboardShouldPersistTaps="handled">
         <View style={{ gap: 4 }}>
           <Heading>Where are you headed?</Heading>
           <Body muted>Everything is optional. You can add cities, dates and friends later.</Body>

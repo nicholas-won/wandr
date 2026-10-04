@@ -85,7 +85,7 @@ export default function AddIdea() {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <Stack.Screen options={{ title: toLibrary ? "Save a link" : "Add an idea" }} />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
         {offer ? (
           <Card style={{ padding: 16, gap: 12, backgroundColor: c.accent }}>
             <Body style={{ color: c.accentForeground, fontWeight: "700", fontSize: 17 }}>{offer.label}</Body>

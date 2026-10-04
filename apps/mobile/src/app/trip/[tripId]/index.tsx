@@ -104,6 +104,7 @@ export default function TripScreen() {
         <ActivityIndicator style={{ marginTop: 48 }} color={c.primary} />
       ) : (
         <FlatList
+          contentInsetAdjustmentBehavior="automatic"
           ref={listRef}
           data={trip?.ideas ?? []}
           keyExtractor={(i) => i.id}
