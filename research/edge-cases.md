@@ -235,6 +235,26 @@
 
 ---
 
+## 10a. Idea library (§6.12)
+
+| ID | Case | Severity | Recommendation | Refs |
+|---|---|---|---|---|
+| LB-1 | **Cap workaround through a trip.** A free user imports into a solo or group trip to avoid the 3-a-day library cap. | Med | No workaround: the cap is per person across the library and every trip (D62). | FR-L23 |
+| LB-11 | **Trial abuse.** Someone repeats the 7-day trial with new emails or phone numbers. | Med | One trial per verified phone, email and payment fingerprint. | FR-L21a |
+| LB-12 | **Charged after forgetting the trial.** Leads to refund requests and chargebacks. | Med | Reminder about 2 days before conversion; one-tap cancel; a no-questions refund if they ask within 48 hours of the first charge **[suggested, not decided]**. | FR-L21a |
+| LB-2 | **Guest hits the cap inside a group trip.** A no-app guest pastes their 4th TikTok of the day into the bach trip. | High | The idea still appears for the group with its link. The guest can add the place by hand (free), or it's AI-sorted with tomorrow's allowance. Any member can fix the place by hand. The guest sees an upgrade option on the web only; the text reply is "Added. Reply with the place name to pin it now, or we'll sort it tomorrow." Voting is never affected. | FR-L23, D62 |
+| LB-13 | **Group stalls on unsorted ideas.** Several free-tier members hit the cap the same day before a deadline. | Med | Manual adds are always free, so anyone (including organizers) can pin the place by hand. Members can't spend their AI imports on someone else's link. Organizers see "3 ideas need a place." | FR-L20, FR-L23 |
+| LB-3 | **Over the cap.** A free user pastes 10 links at once. | Med | The first 3 resolve now; the rest are saved with their links right away, and the person can add each place by hand or leave them for the next day's allowance. Nothing is dropped. | FR-L20, C-19 |
+| LB-4 | **Saved idea later sent to a trip, then edited or deleted.** | Med | The trip holds a copy (§5). Deleting or re-sorting the saved idea doesn't change the trip; fixing the place in the trip doesn't change the library. | FR-L12 |
+| LB-5 | **Privacy leak from library to trip.** A trip member sees "Sam also saved this" or a count that includes Sam's private saves. | High | Libraries are private by Row Level Security; trip views and share cards only count trip ideas. No "also saved by" across libraries. | FR-L25 |
+| LB-6 | **Shared board member leaves or is removed.** | Low | Their added saves stay on the board marked "former member"; they keep personal copies only if they saved them to their own library. | FR-L14 |
+| LB-7 | **Texted-in link with no clear destination.** The person is in one stale trip and has a library. | Med | Route by the "active trip" rule (§14 open question). The reply always includes a link to move it ("Saved to Lisbon trip · move to library?"). | FR-83, FR-L2 |
+| LB-8 | **Region-level or vague saves** ("Amalfi Coast road trip," "Japan in cherry blossom season"). | Med | File at country or region level, not forced to a city. They count toward a region tile, and starting a trip from them asks which cities. | FR-L3 |
+| LB-9 | **Saved place closes** before the person ever goes. | Low | Flag "Permanently closed" on the save (FR-33); keep it so the person's history isn't silently changed; exclude it from "trip-ready" counts. | FR-L18 |
+| LB-10 | **Huge libraries** (1,000+ saves from a heavy TikTok user). | Low | City grid and per-city lists load separately; the map clusters. Same performance target as FR-S11. | FR-L6, FR-L7 |
+
+---
+
 ## 11. DECISION NEEDED (all items)
 
 **DN-1 (J-1, J-2) Shared phones and people with no phone.** How do people without their own verified number take part?

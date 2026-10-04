@@ -7,3 +7,11 @@ node_modules/
 .vercel/
 dist/
 coverage/
+.data/
+*.tsbuildinfo
+next-env.d.ts
+test-results/
+playwright-report/
+.claude/worktrees/
+.next-e2e/
+.next-review/

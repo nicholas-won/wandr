@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Warm "postcard" palette: paper background, sunset-coral primary, sea-teal
+ * secondary. All text/background pairs meet WCAG AA (NFR-8): body text ≥ 7:1, primary button
+ * text ≥ 4.5:1, input borders ≥ 3:1 against the surface.
+ * Dark mode follows the OS; add class="dark" on <html> to force it.
+ */
+:root {
+  --radius: 1rem;
+
+  --background: #fbf7f2;
+  --foreground: #1f1a17;
+  --card: #ffffff;
+  --card-foreground: #1f1a17;
+  --popover: #ffffff;
+  --popover-foreground: #1f1a17;
+  --muted: #f1eae2;
+  --muted-foreground: #5e544c;
+  --primary: #c2410c;
+  --primary-foreground: #ffffff;
+  --primary-hover: #a3370a;
+  --secondary: #e3f1ed;
+  --secondary-foreground: #0f4c45;
+  --accent: #fde7d6;
+  --accent-foreground: #7a2a0a;
+  --destructive: #b42318;
+  --destructive-foreground: #ffffff;
+  --border: #e6ddd3;
+  --input: #8c7f73;
+  --ring: #c2410c;
+
+  /* Vote colors (FR-40): Must-do / Down / Pass */
+  --vote-must: #c2410c;
+  --vote-down: #0f766e;
+  --vote-pass: #57534e;
+  --vote-foreground: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --background: #14110f;
+    --foreground: #f4eee8;
+    --card: #1e1a17;
+    --card-foreground: #f4eee8;
+    --popover: #1e1a17;
+    --popover-foreground: #f4eee8;
+    --muted: #2a2420;
+    --muted-foreground: #b8aca1;
+    --primary: #ff8a5c;
+    --primary-foreground: #1f1a17;
+    --primary-hover: #ffa47f;
+    --secondary: #12302c;
+    --secondary-foreground: #a7e3d8;
+    --accent: #3a2418;
+    --accent-foreground: #ffc9a8;
+    --destructive: #f97066;
+    --destructive-foreground: #1f1a17;
+    --border: #3a322c;
+    --input: #7a6e64;
+    --ring: #ff8a5c;
+    --vote-must: #ff8a5c;
+    --vote-down: #5ec2b5;
+    --vote-pass: #b8aca1;
+    --vote-foreground: #1f1a17;
+  }
+}
+
+:root.dark {
+  --background: #14110f;
+  --foreground: #f4eee8;
+  --card: #1e1a17;
+  --card-foreground: #f4eee8;
+  --popover: #1e1a17;
+  --popover-foreground: #f4eee8;
+  --muted: #2a2420;
+  --muted-foreground: #b8aca1;
+  --primary: #ff8a5c;
+  --primary-foreground: #1f1a17;
+  --primary-hover: #ffa47f;
+  --secondary: #12302c;
+  --secondary-foreground: #a7e3d8;
+  --accent: #3a2418;
+  --accent-foreground: #ffc9a8;
+  --destructive: #f97066;
+  --destructive-foreground: #1f1a17;
+  --border: #3a322c;
+  --input: #7a6e64;
+  --ring: #ff8a5c;
+  --vote-must: #ff8a5c;
+  --vote-down: #5ec2b5;
+  --vote-pass: #b8aca1;
+  --vote-foreground: #1f1a17;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-vote-must: var(--vote-must);
+  --color-vote-down: var(--vote-down);
+  --color-vote-pass: var(--vote-pass);
+  --color-vote-foreground: var(--vote-foreground);
+
+  --radius-sm: calc(var(--radius) - 0.5rem);
+  --radius-md: calc(var(--radius) - 0.25rem);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.5rem);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-bricolage), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --animate-toast-in: toast-in 180ms ease-out;
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  dialog::backdrop {
+    background: rgb(20 17 15 / 0.55);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
