@@ -30,7 +30,7 @@ export function DateField({
             minimumDate={minimumDate}
             themeVariant={dark ? "dark" : "light"}
             accentColor={c.primary}
-            onChange={(_, d) => d && onChange(d)}
+            onValueChange={(_, d) => onChange(d)}
             accessibilityLabel={label}
           />
         </View>
@@ -44,7 +44,7 @@ export function DateField({
                 value: shown,
                 mode: "date",
                 minimumDate,
-                onChange: (e, d) => e.type === "set" && d && onChange(d),
+                onValueChange: (_, d) => onChange(d),
               });
             } else onChange(shown);
           }}
