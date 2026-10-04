@@ -9,6 +9,7 @@ import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { IdeaCardView } from "@/components/IdeaCardView";
+import { TripSections } from "@/components/TripSections";
 import { Body, Button, EmptyState, ErrorText, Heading } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { lastTripStore } from "@/lib/token-store";
@@ -136,6 +137,7 @@ export default function TripScreen() {
                       {notice}
                     </Body>
                   ) : null}
+                  <TripSections trip={trip} />
                 </>
               ) : null}
             </View>

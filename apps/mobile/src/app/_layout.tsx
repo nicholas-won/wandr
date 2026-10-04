@@ -78,6 +78,27 @@ function RootStack({ fontsLoaded }: { fontsLoaded: boolean }) {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="trip/[tripId]/index" options={{ title: "" }} />
           <Stack.Screen name="trip/[tripId]/invite" options={{ presentation: "modal", title: "Invite" }} />
+
+          {/* Ideas (idea detail, comments, edit) */}
+          <Stack.Screen name="trip/[tripId]/idea/[ideaId]" options={{ title: "" }} />
+
+          {/* Itinerary (Stops, plan, map) */}
+          <Stack.Screen name="trip/[tripId]/plan" options={{ title: "Plan" }} />
+          <Stack.Screen name="trip/[tripId]/stops" options={{ title: "Stops" }} />
+          <Stack.Screen name="trip/[tripId]/map" options={{ title: "Map" }} />
+
+          {/* Money */}
+          <Stack.Screen name="trip/[tripId]/money/index" options={{ title: "Money" }} />
+
+          {/* Group (people, polls, What's new, trip settings) */}
+          <Stack.Screen name="trip/[tripId]/people" options={{ title: "People" }} />
+          <Stack.Screen name="trip/[tripId]/polls/index" options={{ title: "Polls" }} />
+          <Stack.Screen name="trip/[tripId]/activity" options={{ title: "What's new" }} />
+          <Stack.Screen name="trip/[tripId]/settings" options={{ title: "Trip settings" }} />
+
+          {/* Account and library */}
+          <Stack.Screen name="account" options={{ title: "Account" }} />
+
           <Stack.Screen name="add" options={{ presentation: "modal", title: "Add an idea" }} />
           <Stack.Screen name="new-trip" options={{ presentation: "modal", title: "New trip" }} />
           <Stack.Screen

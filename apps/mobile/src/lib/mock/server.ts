@@ -6,7 +6,7 @@
  * Sign in with any number and the code 000000. Privacy rules mirror the server's: blind group
  * tallies until you vote, Pass shown only as a count in groups (FR-41/42), duo votes open (§6.10).
  */
-import { endpoints, type EndpointName, type IdeaCard, type TripSize, type VoteValue } from "@wandr/api-contract";
+import { endpoints, type EndpointDef, type EndpointName, type IdeaCard, type TripSize, type VoteValue } from "@wandr/api-contract";
 import { isSplitOpinions, SPLIT_OPINIONS_LABEL, voteLabel } from "@wandr/core/voting";
 import { ME, fakePlaceFor, seedSaves, seedTrips, type MockIdea, type MockSave, type MockTrip } from "./fixtures";
 
@@ -202,7 +202,9 @@ export function createMockFetch(opts: MockOptions = {}): typeof fetch {
 
   type Handler = (ctx: { params: Record<string, string>; body: any; headers: Headers }) => unknown;
 
-  const handlers: Record<EndpointName, Handler> = {
+  // Partial: endpoints added after the first slice answer 501 here; test them against the real API
+  // (`pnpm smoke`) instead.
+  const handlers: Partial<Record<EndpointName, Handler>> = {
     requestCode: ({ body }) => {
       const challenge = `ch-${seq++}`;
       challenges.set(challenge, body.destination);
@@ -351,15 +353,18 @@ export function createMockFetch(opts: MockOptions = {}): typeof fetch {
       if (!m) continue;
       const params: Record<string, string> = {};
       r.keys.forEach((k, idx) => (params[k] = decodeURIComponent(m[idx + 1]!)));
-      const ep = endpoints[r.name];
+      const ep: EndpointDef = endpoints[r.name];
+      const handle = handlers[r.name];
+      if (!handle) return json(501, { error: "not_in_mock", message: "Not available in mock mode yet." });
       let body: unknown = undefined;
-      if (ep.body) {
+      if (ep.body === "multipart") body = init?.body;
+      else if (ep.body) {
         const parsed = ep.body.safeParse(init?.body ? JSON.parse(String(init.body)) : {});
         if (!parsed.success) return json(400, { error: "bad_request", message: "Check what you entered." });
         body = parsed.data;
       }
       try {
-        return json(200, handlers[r.name]({ params, body, headers }));
+        return json(200, handle({ params, body, headers }));
       } catch (e) {
         if (e instanceof HttpError) return json(e.status, { error: e.code, message: e.message });
         return json(500, { error: "server_error", message: "Something went wrong." });
