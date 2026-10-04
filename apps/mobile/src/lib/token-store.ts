@@ -19,7 +19,7 @@ export const tokenStore = {
       if (process.env.EXPO_PUBLIC_API_MOCK === "1" && process.env.EXPO_PUBLIC_MOCK_SIGNED_IN === "1") cached = "mock-demo";
       else if (process.env.EXPO_PUBLIC_DEV_TOKEN) cached = process.env.EXPO_PUBLIC_DEV_TOKEN;
     }
-    return cached;
+    return cached ?? null;
   },
   get(): string | null {
     return cached ?? null;
