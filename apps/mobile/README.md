@@ -101,6 +101,26 @@ src/lib/               api client, session, SecureStore token, push, theme token
 - **Accessibility:** text scales with Dynamic Type; vote buttons are radios labelled "Must-do: <idea>"
   with hints; touch targets ≥ 44pt (vote buttons 56pt).
 
+## Troubleshooting
+
+- **Red screen on launch: "expo-linking needs access to the expo-constants manifest"**. The native
+  build has no embedded Expo config. Cause: the repo path has spaces ("Group Travel App"), and two
+  upstream iOS build scripts (expo-constants' "Generate app.config" phase and the React Native
+  bundle phase) don't quote paths, so the config was never written. `plugins/with-path-spaces-fix.js`
+  fixes both at prebuild time. **After pulling, rebuild the native app**: a JS reload alone won't
+  pick it up.
+  ```sh
+  cd apps/mobile
+  npx expo prebuild --platform ios --clean
+  npx expo run:ios
+  ```
+  Check it worked: `find ~/Library/Developer/Xcode/DerivedData -path '*Wandr*.app/EXConstants.bundle/app.config'`
+  should list a file. As a safety net the app passes its URL scheme to the share-intent library
+  explicitly and, if expo-linking still can't build a URL, logs a warning and turns share intake
+  off for that session instead of crashing.
+- **"No such file or directory: …/Group" during `xcodebuild`**: same cause; re-run prebuild as above.
+- **Expo Go shows errors about native modules**: use the dev build (`npx expo run:ios`), not Expo Go.
+
 ## Open questions (need a founder / API decision)
 
 1. **Trip order in `GET /me`**: the share sheet defaults to "the most recently active trip" (FR-21).

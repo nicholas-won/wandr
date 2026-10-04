@@ -12,7 +12,7 @@ const APP_NAME = /APP_NAME\s*=\s*"([^"]+)"/.exec(coreConfig)?.[1] ?? "Wandr";
  * the founder sets up the Apple / Google accounts; override them with env vars.
  */
 const bundleId = process.env.WANDR_BUNDLE_ID ?? "app.wandr.mobile";
-const scheme = "wandr";
+const scheme = "wandr"; // keep in sync with APP_SCHEME in src/lib/share-intake.ts
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,

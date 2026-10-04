@@ -9,6 +9,7 @@ import { useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useNotificationRouting } from "@/lib/push";
 import { SessionProvider, useSession } from "@/lib/session";
+import { shareIntentOptions } from "@/lib/share-intake";
 import { fonts, useTheme } from "@/lib/theme";
 
 void SplashScreen.preventAutoHideAsync();
@@ -17,7 +18,7 @@ export default function RootLayout() {
   const [fontsLoaded] = useFonts({ BricolageGrotesque_700Bold, BricolageGrotesque_800ExtraBold });
   return (
     // FR-21: must wrap everything so a share that cold-starts the app is caught.
-    <ShareIntentProvider options={{ resetOnBackground: false }}>
+    <ShareIntentProvider options={shareIntentOptions()}>
       <SessionProvider>
         <SafeAreaProvider>
           <RootStack fontsLoaded={fontsLoaded} />
