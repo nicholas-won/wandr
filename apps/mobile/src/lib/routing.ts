@@ -22,8 +22,12 @@ export function hrefForNotification(data: unknown): AppHref | null {
   if (d.screen === "library") return "/library";
   const url = str(d.url);
   if (url) {
-    const m = /(?:^wandr:\/\/|\/)trip\/([A-Za-z0-9_-]+)/.exec(url);
+    // The server sends web paths (apps/web/src/server/push.ts): /t/:tripId, /t/:tripId/people,
+    // /t/:tripId/polls/:pollId, /t/:tripId/money. The app has no people/polls/money screens yet,
+    // so all of them open the trip. Also accepts full URLs and wandr://trip/:id.
+    const m = /(?:^wandr:\/\/trip\/|^(?:https?:\/\/[^/]+)?\/(?:t|trip)\/)([A-Za-z0-9_-]+)/.exec(url);
     if (m?.[1]) return `/trip/${m[1]}`;
+    if (/^(?:https?:\/\/[^/]+)?\/library\b/.test(url)) return "/library";
   }
   return null;
 }

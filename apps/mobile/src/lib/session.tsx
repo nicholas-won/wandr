@@ -4,7 +4,7 @@
 import type { Me, TripSummary } from "@wandr/api-contract";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, ApiRequestError, setUnauthorizedHandler } from "./api";
-import { registerForPushIfGranted } from "./push";
+import { registeredPushToken, registerForPushIfGranted } from "./push";
 import { tokenStore } from "./token-store";
 
 type Status = "loading" | "signedOut" | "signedIn";
@@ -73,7 +73,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
-    await api("signOut", { body: {} }).catch(() => undefined);
+    // Send this phone's push token so it stops getting this person's pushes.
+    const expoPushToken = registeredPushToken();
+    await api("signOut", { body: expoPushToken ? { expoPushToken } : {} }).catch(() => undefined);
     await clear();
   }, [clear]);
 

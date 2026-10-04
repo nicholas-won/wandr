@@ -21,6 +21,12 @@ Notifications.setNotificationHandler({
   }),
 });
 
+/** The token this phone registered (sent with sign-out so it stops getting this person's pushes). */
+let registeredToken: string | null = null;
+export function registeredPushToken(): string | null {
+  return registeredToken;
+}
+
 async function register(): Promise<boolean> {
   if (!Device.isDevice && !API_MOCK) return false; // simulators can't get a real push token
   if (Platform.OS === "android") {
@@ -40,6 +46,7 @@ async function register(): Promise<boolean> {
   } catch {
     return false;
   }
+  registeredToken = expoPushToken;
   await api("registerPush", { body: { expoPushToken, platform: Platform.OS === "ios" ? "ios" : "android" } }).catch(
     () => undefined,
   );

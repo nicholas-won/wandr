@@ -154,6 +154,14 @@ describe("routing", () => {
     expect(hrefForNotification({ tripId: "t1", ideaId: "i 2" })).toBe("/trip/t1?idea=i%202");
     expect(hrefForNotification({ url: "wandr://trip/abc" })).toBe("/trip/abc");
     expect(hrefForNotification({ url: "https://wandr.app/trip/abc" })).toBe("/trip/abc");
+    // Server push paths (web routes) all land on the trip screen.
+    expect(hrefForNotification({ url: "/t/abc" })).toBe("/trip/abc");
+    expect(hrefForNotification({ url: "/t/abc/people" })).toBe("/trip/abc");
+    expect(hrefForNotification({ url: "/t/abc/polls/p1" })).toBe("/trip/abc");
+    expect(hrefForNotification({ url: "/t/abc/money" })).toBe("/trip/abc");
+    expect(hrefForNotification({ url: "https://wandr.app/t/abc/money" })).toBe("/trip/abc");
+    expect(hrefForNotification({ url: "/library" })).toBe("/library");
+    expect(hrefForNotification({ url: "/settings" })).toBeNull();
     expect(hrefForNotification({ screen: "library" })).toBe("/library");
     expect(hrefForNotification(null)).toBeNull();
     expect(hrefForNotification({ tripId: 42 })).toBeNull();
