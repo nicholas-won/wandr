@@ -17,4 +17,10 @@ config.resolver.nodeModulesPaths = Array.from(
   ]),
 );
 
+// Agent worktrees live in .claude/worktrees inside the repo: never watch or resolve from them, or
+// Metro sees duplicate packages and reloads constantly.
+const worktrees = new RegExp(`^${path.join(workspaceRoot, ".claude").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(/|$)`);
+const prior = config.resolver.blockList;
+config.resolver.blockList = [...(Array.isArray(prior) ? prior : prior ? [prior] : []), worktrees];
+
 module.exports = config;
