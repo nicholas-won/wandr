@@ -37,7 +37,7 @@ settings in `app.config.ts`, not in Xcode.
 | Add idea / share | Card appears as "Finding the place…" and fills in after ~3.5 s with a fake place | Server extraction |
 | Votes | Blind group tallies, Pass as count only, open duo votes: same rules as the server | Server |
 | Invite | Returns a fake link; share sheet works | Server texts the personal link (D65) |
-| Push | Registers a fake token on the simulator | Needs `EXPO_PUBLIC_EAS_PROJECT_ID` and a real device |
+| Push | Registers a fake token on the simulator | Needs `EXPO_PUBLIC_EAS_PROJECT_ID` and a real device; sign-out unregisters the token |
 | State | In memory; resets when the JS reloads (your token survives, so you stay signed in) | Server |
 
 The mock (`src/lib/mock/server.ts`) is a `fetch` replacement handed to the real contract client,
@@ -45,6 +45,24 @@ so mock responses are schema-checked exactly like server responses.
 
 For a phone on Wi-Fi, set `EXPO_PUBLIC_API_URL` to your computer's LAN address
 (`http://192.168.x.x:3000`); the simulator can use `http://localhost:3000`.
+
+### Against the real API locally
+
+```sh
+pnpm dev                                         # repo root: web + /api/v1 on :3000 (PGlite, code 000000)
+EXPO_PUBLIC_API_URL=http://localhost:3000 pnpm --filter @wandr/mobile start
+WANDR_API_URL=http://localhost:3000 pnpm --filter @wandr/mobile smoke   # every app call, schema-checked
+```
+
+Dev-only shortcuts (ignored in release builds, handy for simulator screenshots):
+`EXPO_PUBLIC_MOCK_SIGNED_IN=1` (mock mode: start signed in), `EXPO_PUBLIC_DEV_TOKEN=<token>` (real API:
+start signed in with a token), `EXPO_PUBLIC_DEV_START_ROUTE=/trip/<id>` (open a screen at launch).
+
+### Push
+
+Pushes from the server carry `data.url` as a web path (`/t/:tripId`, `/t/:tripId/people`,
+`/t/:tripId/polls/:pollId`, `/t/:tripId/money`); all open the trip screen for now. Signing out sends
+this phone's push token so it stops receiving that person's pushes.
 
 ## Checks
 
@@ -128,8 +146,9 @@ src/lib/               api client, session, SecureStore token, push, theme token
    should state that `trips` is sorted by recent activity.
 2. **Screenshots / images in the share sheet (FR-20, FR-21)**: the contract has no upload endpoint,
    so the share extension accepts only links and text for now.
-3. **Push payload shape**: the app accepts `{ tripId, ideaId? }`, `{ url }`, `{ screen: "library" }`.
-   The server's push sender should agree on one.
+3. **People / polls / money screens**: the server's pushes link to `/t/:id/people`, `/t/:id/polls/:pollId`
+   and `/t/:id/money`. The app has no screens for those yet, so they open the trip. Approvals and money
+   need app screens (or an "Open on the web" hand-off) next.
 4. **Who may invite**: the Invite button shows for every member; the server decides (403 shows its message).
 5. **Email sign-in**: the contract supports `channel: "email"`, but D74 says phone; the app offers phone only.
 6. **Universal links** (open `https://…/t/<id>` in the app) need the production domain and an
