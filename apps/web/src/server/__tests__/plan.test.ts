@@ -1,7 +1,7 @@
 /** "Arrange my days" end to end on PGlite (FR-O1/O3/O4/O17). */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { asService, ideas, planItems, users, type Db } from "@wandr/db";
+import { asService, ideas, planItems, stops, users, type Db } from "@wandr/db";
 import { createPglite } from "@wandr/db/pglite";
 import { eq } from "drizzle-orm";
 import { createTrip } from "../trips";
@@ -71,6 +71,25 @@ describe("plan", () => {
     const barRow = rows.find((r) => r.ideaId === bar!.id)!;
     expect(barRow).toMatchObject({ dayIndex: 2, startMinute: 1260, locked: true });
     expect(rows.filter((r) => r.ideaId === bar!.id)).toHaveLength(1);
+  });
+
+  it("multi-city: every city is reachable and decided ideas with no city aren't lost (founder bug)", async () => {
+    const s = await setup();
+    const claims = { sub: s.uid };
+    const [porto] = await asService(s.d, (tx) =>
+      tx.insert(stops).values({ tripId: s.tripId, name: "Porto", position: 1 }).returning(),
+    );
+    const [loose] = await asService(s.d, (tx) =>
+      tx.insert(ideas).values({ tripId: s.tripId, title: "Port tasting", status: "planned", extraction: "resolved" }).returning(),
+    );
+    let ctx = (await getPlanContext(s.d, claims, s.tripId))!;
+    expect(ctx.stops.map((x) => x.name)).toEqual(["Lisbon", "Porto"]);
+    expect(ctx.unsortedDecided.map((i) => i.title)).toEqual(["Port tasting"]);
+
+    await asService(s.d, (tx) => tx.update(ideas).set({ stopId: porto!.id }).where(eq(ideas.id, loose!.id)));
+    ctx = (await getPlanContext(s.d, claims, s.tripId, porto!.id))!;
+    expect(ctx.unsortedDecided).toHaveLength(0);
+    expect(unplacedItems(ctx).map((i) => i.title)).toContain("Port tasting");
   });
 
   it("non-organizers can't apply (FR-O3)", async () => {

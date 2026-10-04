@@ -9,6 +9,7 @@ import { tripContext } from "@/server/context";
 import { getPlanContext, isPlanOutOfDate, planHints, previewPlan, stopLocation, unplacedItems } from "@/server/plan";
 import { forecastFor } from "@/server/weather";
 import { AddToPlan, ApplyPlan, ItemControls, TravelTimes } from "./plan-controls";
+import { PutInCity } from "./put-in-city";
 import { PlanMapRail, type PlanMapDay } from "@/components/map/plan-map-rail";
 
 const MODE: Record<string, string> = { walk: "🚶", transit: "🚇", drive: "🚗" };
@@ -49,15 +50,27 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/t/[
     />
   ) : null;
 
+  // Founder bug: city tabs, and decided ideas without a city, so nothing decided goes missing.
+  const header = (
+    <>
+      <CityTabs tripId={tripId} stops={ctx.stops} current={ctx.stop.id} />
+      <UnsortedDecided tripId={tripId} ideas={ctx.unsortedDecided} stops={ctx.stops} />
+    </>
+  );
+
   if (ctx.input.items.length === 0 && ctx.current.items.length === 0) {
     return (
+      <div className="space-y-4">
+      {header}
       <main className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">
         <CalendarDays className="mx-auto mb-2 size-8" aria-hidden />
         <p className="font-display text-xl font-bold text-foreground">Nothing planned yet</p>
         <p className="mt-1 text-sm">
-          Once the group decides on ideas, {ctx.canApply ? "you can" : "an organizer can"} arrange them into days here.
+          Mark ideas <strong>✓ Decided</strong> in {ctx.stop.name || "this trip"} and they show up here. Then{" "}
+          {ctx.canApply ? "you can" : "an organizer can"} put them on days, or tap &ldquo;Arrange my days&rdquo;.
         </p>
       </main>
+      </div>
     );
   }
 
@@ -282,5 +295,56 @@ function PlanDays({ plan, title }: { plan: optimizer.Plan; title: (id: string) =
         </section>
       ))}
     </>
+  );
+}
+
+function CityTabs({ tripId, stops, current }: { tripId: string; stops: { id: string; name: string }[]; current: string }) {
+  if (stops.length < 2) return null;
+  return (
+    <nav aria-label="City" className="-mx-1 flex gap-1.5 overflow-x-auto pb-1">
+      {stops.map((s, i) => (
+        <Link
+          key={s.id}
+          href={`${routes.trip(tripId)}/plan?stop=${s.id}`}
+          aria-current={s.id === current ? "page" : undefined}
+          className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold ${
+            s.id === current ? "bg-foreground text-background" : "border bg-card text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {i + 1}. {s.name}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+function UnsortedDecided({
+  tripId,
+  ideas,
+  stops,
+}: {
+  tripId: string;
+  ideas: { id: string; title: string }[];
+  stops: { id: string; name: string }[];
+}) {
+  if (ideas.length === 0) return null;
+  return (
+    <section aria-labelledby="unsorted-decided-h" className="space-y-2 rounded-xl border border-primary/40 bg-accent/40 p-4">
+      <h2 id="unsorted-decided-h" className="font-display text-base font-bold">
+        Decided, but which city?
+      </h2>
+      <p className="text-sm text-muted-foreground">
+        {ideas.length === 1 ? "This idea isn't" : "These ideas aren't"} in a city yet, so {ideas.length === 1 ? "it can't" : "they can't"} go on a
+        day. Pick where {ideas.length === 1 ? "it belongs" : "each belongs"}.
+      </p>
+      <ul className="divide-y">
+        {ideas.map((i) => (
+          <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+            <span className="font-semibold">{i.title}</span>
+            <PutInCity tripId={tripId} ideaId={i.id} stops={stops} />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

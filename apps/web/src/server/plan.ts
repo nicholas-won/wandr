@@ -42,6 +42,13 @@ export interface PlanContext {
   current: optimizer.PlanLike & { items: PlanItemRow[] };
   canApply: boolean;
   myMemberId: string;
+  /** Every named Stop, in order, for the city tabs (founder bug: only the first city ever showed). */
+  stops: { id: string; name: string }[];
+  /**
+   * Decided ideas with no city on a multi-city trip. They can't go on any city's plan until they
+   * have one, so the page asks where they go instead of silently leaving them out.
+   */
+  unsortedDecided: { id: string; title: string }[];
 }
 
 export type PlanItemRow = typeof planItems.$inferSelect;
@@ -157,6 +164,13 @@ export async function getPlanContext(
       pace: (trip.pace as optimizer.Pace) ?? "balanced",
       memberIds: active.map((m) => m.id),
     };
+    const unsortedDecided = singleStop
+      ? []
+      : await tx
+          .select({ id: ideas.id, title: ideas.title })
+          .from(ideas)
+          .where(and(eq(ideas.tripId, tripId), eq(ideas.status, "planned"), isNull(ideas.stopId)))
+          .orderBy(asc(ideas.createdAt));
     const size = tripSize(active.length);
     // FR-O3: organizers apply; in a duo, the owner (D57).
     const canApply = !!claims.sub && (size === "duo" ? me.role === "owner" : me.role !== "member");
@@ -180,6 +194,8 @@ export async function getPlanContext(
       } as PlanContext["current"],
       canApply,
       myMemberId: me.id,
+      stops: stopRows.filter((s) => s.name.trim()).map((s) => ({ id: s.id, name: s.name })),
+      unsortedDecided,
     };
   });
 }
