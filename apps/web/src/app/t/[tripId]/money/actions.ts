@@ -8,7 +8,7 @@ import { cookies } from "next/headers";
 import { refresh } from "next/cache";
 import { z } from "zod";
 import { money } from "@wandr/core";
-import { AuthError, requireFull } from "@/lib/auth/session";
+import { AuthError, getSession, requireFull } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { EVENTS } from "@/inngest/client";
 import { tripContext } from "@/server/context";
@@ -48,7 +48,8 @@ async function full(tripId: string) {
 /** FR-68: everyone involved hears about changes (messaging slice, throttled there, FR-84). */
 async function notifyChange(tripId: string, expenseId: string) {
   try {
-    await enqueue({ name: EVENTS.expenseChanged, data: { tripId, expenseId } });
+    const { user } = await getSession();
+    await enqueue({ name: EVENTS.expenseChanged, data: { tripId, expenseId, actorUserId: user?.userId ?? null } });
   } catch (e) {
     console.error("[money] notify failed", e);
   }

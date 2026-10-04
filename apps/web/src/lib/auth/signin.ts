@@ -1,6 +1,9 @@
 /**
- * Sign-in with a code (FR-5, FR-14, FR-15, FR-16; J-4, J-16, J-17). Server only; call from
- * Server Actions or Route Handlers (it sets cookies).
+ * Sign-in with a code (FR-5, FR-14, FR-15, FR-16; J-4, J-16, J-17). Server only.
+ *
+ * One implementation, two carriers: `startCodeChallenge` / `checkCodeChallenge` do the work;
+ * `requestCode` / `verifyCode` keep the challenge and session in cookies (web), and the
+ * /api/v1 auth routes return them as bearer tokens instead (native app, D75).
  *
  * - SMS codes for US/CA numbers via Twilio Verify (separate sender, FR-85); email elsewhere.
  * - Limits per destination, IP and trip, CAPTCHA after repeats, daily SMS spend cap.
@@ -10,11 +13,11 @@
  */
 import { cookies } from "next/headers";
 import { and, eq, gte, sql } from "drizzle-orm";
-import { asService, auditLog, getDb, members, otpRequests, users, type Tx } from "@wandr/db";
+import { asService, auditLog, getDb, members, otpRequests, users, type Db, type Tx } from "@wandr/db";
 import { getCaptcha } from "./captcha";
 import { COOKIE, cookieOptions } from "./cookies";
 import { keyedHash } from "./crypto";
-import { getOtpProvider, type OtpChannel } from "./otp/provider";
+import { codeTestMode, getOtpProvider, type OtpChannel } from "./otp/provider";
 import { maskPhone, normalizeEmail, normalizePhone } from "./phone";
 import {
   attemptsExhausted,
@@ -83,7 +86,16 @@ async function countRequests(tx: Tx, destination: string, ip: string | null, tri
   };
 }
 
-export async function requestCode(req: RequestCodeInput): Promise<RequestCodeResult> {
+export type CodeChallengeResult =
+  | { ok: true; channel: OtpChannel; display: string; challenge: string; testMode: boolean }
+  | Extract<RequestCodeResult, { ok: false }>;
+
+/**
+ * Shared by the cookie flow (web) and the token flow (native app, /api/v1): validates the
+ * destination, applies every limit (FR-15) and sends the code. Returns the signed challenge;
+ * the caller decides where it lives (a cookie, or the API response).
+ */
+export async function startCodeChallenge(req: RequestCodeInput): Promise<CodeChallengeResult> {
   let destination: string;
   let display: string;
   if (req.channel === "sms") {
@@ -144,8 +156,15 @@ export async function requestCode(req: RequestCodeInput): Promise<RequestCodeRes
     },
     OTP_TTL_SECONDS,
   );
-  (await cookies()).set(COOKIE.otp, challenge, cookieOptions(OTP_TTL_SECONDS));
-  return { ok: true, channel: req.channel, display };
+  return { ok: true, channel: req.channel, display, challenge, testMode: codeTestMode(req.channel) };
+}
+
+/** Web sign-in: the challenge rides in a short-lived cookie. */
+export async function requestCode(req: RequestCodeInput): Promise<RequestCodeResult> {
+  const r = await startCodeChallenge(req);
+  if (!r.ok) return r;
+  (await cookies()).set(COOKIE.otp, r.challenge, cookieOptions(OTP_TTL_SECONDS));
+  return { ok: true, channel: r.channel, display: r.display };
 }
 
 export type VerifyCodeResult =
@@ -154,16 +173,33 @@ export type VerifyCodeResult =
 
 const FAILED_ACTION = "auth.otp_failed";
 
-export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
-  const jar = await cookies();
-  const ch = await verifyPayload(jar.get(COOKIE.otp)?.value, "otp");
+export type CheckedCode =
+  | { ok: true; userId: string; isNewUser: boolean; needsName: boolean; needsRecheck: boolean }
+  | { ok: false; error: "expired" | "wrong" | "locked"; attemptsLeft?: number };
+
+const USED_ACTION = "auth.otp_used";
+
+/**
+ * Shared by the cookie and token flows: checks a code against a signed challenge, counts wrong
+ * attempts (max 5 per challenge, J-16), finds or creates the verified user and applies the
+ * recycled-number check (FR-16, J-4). A challenge works once.
+ *
+ * `provisionalId`: a zero-setup device user to adopt (web only; the API has no provisional users, D74).
+ */
+export async function checkCodeChallenge(
+  challenge: string | undefined,
+  rawCode: string,
+  opts: { provisionalId?: string | null } = {},
+): Promise<CheckedCode> {
+  const ch = await verifyPayload(challenge, "otp");
   if (!ch) return { ok: false, error: "expired" };
 
   const code = rawCode.replace(/\D/g, "");
   const destKey = keyedHash(`dest:${ch.destination}`); // never store the raw number in audit rows
+  const challengeKey = keyedHash(`challenge:${challenge}`);
   const db = await getDb();
 
-  const failed = await asService(db, async (tx) => {
+  const { failed, used } = await asService(db, async (tx) => {
     const [row] = await tx
       .select({ n: sql<number>`count(*)::int` })
       .from(auditLog)
@@ -174,12 +210,21 @@ export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
           gte(auditLog.createdAt, new Date(ch.issuedAt)),
         ),
       );
-    return row?.n ?? 0;
+    const [usedRow] = await tx
+      .select({ id: auditLog.id })
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, USED_ACTION),
+          sql`${auditLog.data}->>'c' = ${challengeKey}`,
+          gte(auditLog.createdAt, new Date(ch.issuedAt)),
+        ),
+      )
+      .limit(1);
+    return { failed: row?.n ?? 0, used: !!usedRow };
   });
-  if (attemptsExhausted(failed)) {
-    jar.delete(COOKIE.otp);
-    return { ok: false, error: "locked" };
-  }
+  if (used) return { ok: false, error: "expired" };
+  if (attemptsExhausted(failed)) return { ok: false, error: "locked" };
 
   const ok =
     code.length === 6 &&
@@ -195,17 +240,14 @@ export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
       tx.insert(auditLog).values({ action: FAILED_ACTION, entity: "otp", data: { d: destKey } }),
     );
     const attemptsLeft = OTP_LIMITS.maxAttempts - failed - 1;
-    if (attemptsLeft <= 0) {
-      jar.delete(COOKIE.otp);
-      return { ok: false, error: "locked" };
-    }
+    if (attemptsLeft <= 0) return { ok: false, error: "locked" };
     return { ok: false, error: "wrong", attemptsLeft };
   }
 
   const now = new Date();
-  const provisional = (await getSession()).user;
-  const provisionalId = provisional?.provisional ? provisional.userId : null;
+  const provisionalId = opts.provisionalId ?? null;
   const result = await asService(db, async (tx) => {
+    await tx.insert(auditLog).values({ action: USED_ACTION, entity: "otp", data: { c: challengeKey } });
     const byDest = ch.channel === "sms" ? eq(users.phone, ch.destination) : eq(users.email, ch.destination);
     const [existing] = await tx.select().from(users).where(byDest).limit(1);
     if (!existing && provisionalId) {
@@ -245,14 +287,29 @@ export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
 
   // FR-5: a personal-link guest who verifies keeps their memberships (not for a recycled-number recheck, J-4).
   if (!result.recheck) await asService(db, (tx) => attachVerifiedIdentity(tx, result.user.id));
-  await setFullSession({ userId: result.user.id, needsRecheck: result.recheck });
-  jar.delete(COOKIE.otp);
   return {
     ok: true,
+    userId: result.user.id,
     isNewUser: result.isNewUser,
     needsName: result.user.displayName.trim() === "",
     needsRecheck: result.recheck,
   };
+}
+
+/** Web sign-in: reads the challenge cookie, then sets the session cookie. */
+export async function verifyCode(rawCode: string): Promise<VerifyCodeResult> {
+  const jar = await cookies();
+  const provisional = (await getSession()).user;
+  const r = await checkCodeChallenge(jar.get(COOKIE.otp)?.value, rawCode, {
+    provisionalId: provisional?.provisional ? provisional.userId : null,
+  });
+  if (!r.ok) {
+    if (r.error !== "wrong") jar.delete(COOKIE.otp);
+    return r;
+  }
+  await setFullSession({ userId: r.userId, needsRecheck: r.needsRecheck });
+  jar.delete(COOKIE.otp);
+  return { ok: true, isNewUser: r.isNewUser, needsName: r.needsName, needsRecheck: r.needsRecheck };
 }
 
 /** The pending challenge, for the code screen ("We texted •••• 0100"). */
@@ -273,16 +330,20 @@ export function cleanDisplayName(input: string): string | null {
 
 export async function setDisplayName(input: string): Promise<{ ok: boolean }> {
   const user = await requireFull({ allowRecheck: true });
+  return applyDisplayName(await getDb(), user.userId, input);
+}
+
+/** Set a verified person's name (web and API). */
+export async function applyDisplayName(db: Db, userId: string, input: string): Promise<{ ok: boolean }> {
   const name = cleanDisplayName(input);
   if (!name) return { ok: false };
-  const db = await getDb();
   await asService(db, async (tx) => {
-    await tx.update(users).set({ displayName: name }).where(eq(users.id, user.userId));
+    await tx.update(users).set({ displayName: name }).where(eq(users.id, userId));
     // Zero-setup creators start as "Me" on their trips (P1); give those rows the real name.
     await tx
       .update(members)
       .set({ displayName: name })
-      .where(and(eq(members.userId, user.userId), eq(members.displayName, PROVISIONAL_NAME)));
+      .where(and(eq(members.userId, userId), eq(members.displayName, PROVISIONAL_NAME)));
   });
   return { ok: true };
 }

@@ -26,6 +26,9 @@ importers:
       '@wandr/ai':
         specifier: workspace:*
         version: link:../../packages/ai
+      '@wandr/api-contract':
+        specifier: workspace:*
+        version: link:../../packages/api-contract
       '@wandr/core':
         specifier: workspace:*
         version: link:../../packages/core

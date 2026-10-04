@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { asService, getDb, users } from "@wandr/db";
 import { Brand } from "@/components/brand";
+import { codeTestMode } from "@/lib/auth/otp/provider";
 import { getSession } from "@/lib/auth/session";
 import { pendingChallenge } from "@/lib/auth/signin";
 import { env } from "@/lib/env";
@@ -29,8 +30,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
 
   const pending = needsName ? null : await pendingChallenge();
   // Local/test only: without Twilio Verify, codes go to the server console and 000000 works.
-  const e = env();
-  const devCodeHint = e.NODE_ENV !== "production" && !(e.TWILIO_ACCOUNT_SID && e.TWILIO_AUTH_TOKEN && e.TWILIO_VERIFY_SERVICE_SID);
+  const devCodeHint = codeTestMode("sms");
   return (
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col px-5 pb-8 pt-6">
       <Brand />

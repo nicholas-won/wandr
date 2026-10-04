@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   // Let local testing on 127.0.0.1 reach dev resources (dev only).
   allowedDevOrigins: ["127.0.0.1"],
   // Workspace packages ship TypeScript source.
-  transpilePackages: ["@wandr/core", "@wandr/db", "@wandr/ai"],
+  transpilePackages: ["@wandr/core", "@wandr/db", "@wandr/ai", "@wandr/api-contract"],
   // Native/wasm DB drivers stay out of the server bundle.
   serverExternalPackages: ["@electric-sql/pglite", "postgres"],
   async headers() {

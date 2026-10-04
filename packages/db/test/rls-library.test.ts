@@ -357,6 +357,7 @@ describe("migration bookkeeping", () => {
       "0009_money_decisions.sql",
       "0009_money_decisions_rls.sql",
       "0011_stop_geo.sql",
+      "0013_push_tokens.sql",
     ]);
   });
 });
