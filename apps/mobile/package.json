@@ -10,6 +10,7 @@
     "android": "expo run:android",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "smoke": "vitest run --config vitest.smoke.mts",
     "export:ios": "expo export --platform ios --output-dir dist"
   },
   "dependencies": {
