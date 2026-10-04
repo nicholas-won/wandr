@@ -11,15 +11,27 @@
 const { withPodfile, withXcodeProject } = require("expo/config-plugins");
 
 const MARKER = "# wandr: quote script paths with spaces";
+// get-app-config-ios.sh itself also uses an unquoted `basename $PROJECT_DIR`, so with spaces it
+// silently skips writing app.config (then expo-linking can't find the scheme). We replace the
+// phase with the same steps, quoted.
 const SNIPPET = `
     ${MARKER}
     installer.pods_project.targets.each do |t|
       t.shell_script_build_phases.each do |p|
-        s = p.shell_script
-        target = '$PODS_TARGET_SRCROOT/../scripts/get-app-config-ios.sh'
-        if s.include?(target) && !s.include?("'" + target + "'")
-          p.shell_script = s.sub(target, "'" + target + "'")
-        end
+        next unless p.shell_script.include?('scripts/get-app-config-ios.sh')
+        p.shell_script = <<~'SH'
+          set -eo pipefail
+          PKG_DIR="$PODS_TARGET_SRCROOT/.."
+          PROJECT_ROOT="\${PROJECT_ROOT:-$PROJECT_DIR/../..}"
+          if [ "$BUNDLE_FORMAT" == "shallow" ]; then
+            RESOURCE_DEST="$CONFIGURATION_BUILD_DIR/EXConstants.bundle"
+          else
+            RESOURCE_DEST="$CONFIGURATION_BUILD_DIR/EXConstants.bundle/Contents/Resources"
+          fi
+          mkdir -p "$RESOURCE_DEST"
+          cd "$PROJECT_ROOT"
+          "$PKG_DIR/scripts/with-node.sh" "$PKG_DIR/scripts/getAppConfig.js" "$PROJECT_ROOT" "$RESOURCE_DEST"
+        SH
       end
     end
 `;
